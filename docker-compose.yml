@@ -1,0 +1,73 @@
+# One-command offline deployment: Ollama (LLM) + backend + frontend.
+#   docker compose up -d --build
+# Then open http://localhost:8080  (or http://<this-machine-IP>:8080 on LAN)
+#
+# First run: pull the model once inside the ollama container:
+#   docker compose exec ollama ollama pull qwen3:4b
+#
+# AUDIT_REPORT.md P0-2 fix: Ollama's port used to be published straight to
+# the host (0.0.0.0:11434), so anything on the host's network could talk to
+# it directly, bypassing the backend's auth/authorization/rate-limiting
+# entirely (brief §37: "the frontend must never directly communicate with
+# Ollama" — and neither should anything else outside this compose network).
+# The backend already reaches Ollama over the internal Docker network via
+# the service name (`http://ollama:11434`), so no host port publish is
+# needed for the app to work. If you need host-side access for local
+# debugging (e.g. `curl localhost:11434` from your own machine), uncomment
+# the `ports:` block below — do not do this in a production deployment.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama       # models persist -> offline after 1st pull
+    # ports:
+    #   - "11434:11434"   # dev-only escape hatch — see note above; DO NOT enable in production
+    restart: unless-stopped
+    # ---- GPU (optional, needs NVIDIA Container Toolkit) ----
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - LLM_MODEL=qwen3:4b
+      - OLLAMA_NUM_CTX=4096
+      - OLLAMA_NUM_PREDICT=512
+      - OLLAMA_THINK=0
+      - OLLAMA_STREAM=1
+      # AUDIT_REPORT.md P0-1: CORS must be an explicit allowlist in any
+      # deployment reachable from more than localhost. This compose file
+      # serves the frontend on 8080, so that's the default here — set this
+      # to your real origin(s) for anything beyond local/LAN use.
+      - ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+    volumes:
+      - backend_storage:/app/storage      # vector index + lexical (FTS5) index persist
+      - backend_data:/app/data            # uploaded files persist
+      - hf_cache:/app/hf_cache             # embedding/OCR/whisper models persist (matches
+                                            # Dockerfile's HF_HOME for the non-root appuser)
+    depends_on:
+      - ollama
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  ollama_models:
+  backend_storage:
+  backend_data:
+  hf_cache:

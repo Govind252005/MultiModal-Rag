@@ -1,0 +1,146 @@
+[
+  {
+    "sample_id": "ocr-001",
+    "image_path": "evaluation/corpus/images/ocr_page_01.png",
+    "ground_truth_transcription": "Q1 2026 revenue was $420,000 and operating cost was $278,000.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-002",
+    "image_path": "evaluation/corpus/images/ocr_page_02.png",
+    "ground_truth_transcription": "Q2 2026 revenue was $468,000 and operating cost was $301,000.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-003",
+    "image_path": "evaluation/corpus/images/ocr_page_03.png",
+    "ground_truth_transcription": "Q3 2026 revenue was $492,000 and operating cost was $316,000.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-004",
+    "image_path": "evaluation/corpus/images/ocr_page_04.png",
+    "ground_truth_transcription": "Customer support resolved 1,240 tickets in July, 1,310 in August, and 1,405 in September.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-005",
+    "image_path": "evaluation/corpus/images/ocr_page_05.png",
+    "ground_truth_transcription": "The standard support target is first response within 4 business hours.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-006",
+    "image_path": "evaluation/corpus/images/ocr_page_06.png",
+    "ground_truth_transcription": "The data retention policy keeps standard support tickets for 180 days.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-007",
+    "image_path": "evaluation/corpus/images/ocr_page_07.png",
+    "ground_truth_transcription": "A data export request must be approved by the workspace owner and logged in the audit register.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-008",
+    "image_path": "evaluation/corpus/images/ocr_page_08.png",
+    "ground_truth_transcription": "The product team ran 240 onboarding sessions in September; 186 users completed onboarding.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-009",
+    "image_path": "evaluation/corpus/images/ocr_page_09.png",
+    "ground_truth_transcription": "The mobile dashboard release date was 15 September 2026.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-010",
+    "image_path": "evaluation/corpus/images/ocr_page_10.png",
+    "ground_truth_transcription": "The incident response target for Severity 1 is acknowledgement within 15 minutes.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-011",
+    "image_path": "evaluation/corpus/images/ocr_page_11.png",
+    "ground_truth_transcription": "The incident response target for Severity 2 is acknowledgement within 60 minutes.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "ocr-012",
+    "image_path": "evaluation/corpus/images/ocr_page_12.png",
+    "ground_truth_transcription": "The approved travel cap for a domestic day trip is ₹3,500 per employee.",
+    "document_type": "scanned",
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  }
+]

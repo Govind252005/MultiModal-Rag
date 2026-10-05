@@ -1,0 +1,124 @@
+# -----------------------
+# Python / virtual env
+# -----------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg-info/
+.venv/
+venv/
+env/
+backend/.venv/
+backend/.venv-linux/
+backend/venv/
+.pytest_cache/
+.pytest-tmp/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# -----------------------
+# Project runtime data / generated content
+# -----------------------
+backend/data/
+backend/storage/
+backend/.cache/
+backend/sessions/
+backend/cache/
+backend/keys.secret
+backend/storage/**
+backend/data/**
+
+# -----------------------
+# Frontend / Node
+# -----------------------
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+frontend/.cache/
+node_modules/
+
+# -----------------------
+# Build / packaging artifacts
+# -----------------------
+build/
+dist/
+*.spec
+*.egg
+*.whl
+*.tar
+*.zip
+release/
+backups/
+
+# -----------------------
+# Models / AI caches
+# -----------------------
+models/
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.engine
+.huggingface/
+.cache/
+
+# -----------------------
+# Uploaded / local databases
+# -----------------------
+uploads/
+data/
+storage/
+chroma/
+vector_db/
+db/
+*.sqlite3
+*.db
+
+# -----------------------
+# Environment files / secrets
+# -----------------------
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+*.secret
+*.key
+
+# -----------------------
+# Docker / local dev helpers
+# -----------------------
+.dockerignore
+
+# -----------------------
+# IDE / OS
+# -----------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Thumbs.db:encryptable
+
+# -----------------------
+# Logs / temp files
+# -----------------------
+*.log
+*.tmp
+*.bak
+/tmp/
+
+# Reproducible local evaluation output.
+reports/evaluation/
+reports/verification/
+
+# Current corpus contains local/private documents and media; publish only a
+# sanitized sample corpus under a separate path.
+evaluation/corpus/

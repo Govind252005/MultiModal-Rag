@@ -1,0 +1,132 @@
+# ============================================================================
+#  Dockerfile.allinone — one large, fully self-contained image.
+#
+#  Bundles EVERYTHING needed to run the Multimodal Offline RAG "as a service":
+#    * the FastAPI backend + retrieval pipeline (unchanged)
+#    * the compiled React UI (served by the backend on the same port)
+#    * all Python ML libraries + PyTorch (CPU)
+#    * every Hugging Face / PaddleOCR model weight, pre-downloaded at build time
+#    * the Ollama server + the Qwen LLM, baked in
+#
+#  Result: a container you can `docker run` (or deploy to Kubernetes) with NO
+#  network access and no separate Ollama service. It is big (well over 10 GB)
+#  by design — that is the trade-off for "one image, runs anywhere, offline".
+#
+#  For a leaner, multi-container setup instead, use the existing
+#  docker-compose.yml (Ollama + backend + frontend as separate services).
+#
+#  Build from the PROJECT ROOT:
+#      docker build -f Dockerfile.allinone -t multimodal-rag:allinone .
+#
+#  Everything here is ADDITIVE. The retrieval/embedding/rerank pipeline and
+#  config defaults are untouched; this only packages the app.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: build the frontend with Node, then discard Node from the final image
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS frontend-build
+WORKDIR /fe
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci
+COPY frontend/ .
+RUN npm run build          # -> /fe/dist
+
+# ---------------------------------------------------------------------------
+# Stage 2: the runtime image
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim
+
+# ---- OS packages ---------------------------------------------------------
+#   tesseract(+hin) : OCR fallback engine
+#   ffmpeg          : audio decoding for Whisper
+#   poppler-utils   : pdf2image
+#   libgl1/libglib  : OpenCV (PaddleOCR) runtime libs
+#   curl, ca-certs  : health checks + installing Ollama
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl \
+      ca-certificates \
+      zstd \
+      procps \
+      tesseract-ocr \
+      tesseract-ocr-hin \
+      ffmpeg \
+      poppler-utils \
+      libgl1 \
+      libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- Install Ollama (LLM server) -----------------------------------------
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+# ---- Model / cache locations (kept inside the image) ---------------------
+#   HF_HOME       : Hugging Face weights (embeddings, CLIP, BLIP, reranker)
+#   PADDLEOCR_MODULE_PATH : PaddleOCR detector/recognizer
+#   OLLAMA_MODELS : where `ollama pull` stores the LLM (baked below)
+ENV HF_HOME=/opt/models/hf \
+    HUGGINGFACE_HUB_CACHE=/opt/models/hf/hub \
+    PADDLEOCR_MODULE_PATH=/opt/models/paddleocr \
+    OLLAMA_MODELS=/opt/models/ollama \
+    TRANSFORMERS_OFFLINE=0 \
+    HF_HUB_OFFLINE=0 \
+    PYTHONUNBUFFERED=1
+RUN mkdir -p /opt/models/hf /opt/models/paddleocr /opt/models/ollama
+
+WORKDIR /app
+
+# ---- Python deps ---------------------------------------------------------
+# CPU PyTorch first (for a GPU image, swap the index-url to a cuXXX wheel and
+# run on a GPU node — see DEPLOY_AS_A_SERVICE.md).
+RUN pip install --no-cache-dir torch torchvision \
+      --index-url https://download.pytorch.org/whl/cpu
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ---- App code + compiled UI ----------------------------------------------
+# Backend at /app  => config.BASE_DIR=/app, so STATIC_DIR=/frontend/dist.
+COPY backend/ /app/
+COPY --from=frontend-build /fe/dist /frontend/dist
+
+# ---- Prefetch every ML model into the image (fully offline at run time) ---
+COPY docker/prefetch_models.py /tmp/prefetch_models.py
+RUN python /tmp/prefetch_models.py && rm -f /tmp/prefetch_models.py
+RUN find /opt/models -type d -name "__pycache__" -exec rm -rf {} + || true
+
+ENV TRANSFORMERS_OFFLINE=1 \
+    HF_HUB_OFFLINE=1 
+# ---- Bake the Ollama LLM into the image -----------------------------------
+# Start the server briefly, pull the model, then stop it. The weights persist
+# in $OLLAMA_MODELS inside the image layer.
+ARG LLM_MODEL=qwen3:8b
+RUN OLLAMA_HOST=127.0.0.1:11434 ollama serve & \
+    for i in $(seq 1 60); do \
+      curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; \
+      sleep 1; \
+    done; \
+    OLLAMA_HOST=127.0.0.1:11434 ollama pull "$LLM_MODEL" && \
+    pkill -f "ollama serve" || true
+
+# ---- Runtime config -------------------------------------------------------
+#   RAG_DATA_HOME=/data  -> all writable data (chroma, storage, sessions,
+#                            users.json) lands in one mountable directory.
+#   WARMUP_ON_STARTUP=1  -> load embedding models at boot (fast first query).
+ENV RAG_DATA_HOME=/data \
+    RAG_HOST=0.0.0.0 \
+    RAG_PORT=8000 \
+    LLM_MODEL=${LLM_MODEL} \
+    OCR_ENGINE=paddleocr \
+    WARMUP_ON_STARTUP=1
+RUN mkdir -p /data
+
+COPY docker/entrypoint-allinone.sh /usr/local/bin/entrypoint-allinone.sh
+RUN chmod +x /usr/local/bin/entrypoint-allinone.sh
+
+VOLUME ["/data"]
+EXPOSE 8000
+
+# Container-level health check (Kubernetes uses its own probes; see k8s/).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=5 \
+  CMD curl -sf http://127.0.0.1:8000/api/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-allinone.sh"]

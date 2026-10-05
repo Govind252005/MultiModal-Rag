@@ -1,0 +1,40 @@
+{
+  "fixed_question_ids": [
+    "ADDON-001",
+    "ADDON-002",
+    "ADDON-003",
+    "ADDON-004",
+    "ADDON-005",
+    "ADDON-006",
+    "ADDON-007",
+    "ADDON-008",
+    "ADDON-009",
+    "ADDON-010",
+    "ADDON-011",
+    "ADDON-012",
+    "ADDON-013",
+    "ADDON-014",
+    "ADDON-015",
+    "ADDON-016",
+    "ADDON-017",
+    "ADDON-018",
+    "ADDON-019",
+    "ADDON-020",
+    "ADDON-021",
+    "ADDON-022",
+    "ADDON-023",
+    "ADDON-024",
+    "ADDON-025",
+    "ADDON-026",
+    "ADDON-027",
+    "ADDON-028",
+    "ADDON-029",
+    "ADDON-030"
+  ],
+  "rules": [
+    "Use identical corpus snapshot and query set for all conditions.",
+    "Change one factor per ablation.",
+    "Store config hash, model/provider, prompt version, top-k settings, latency, token usage, and output path.",
+    "Do not compare runs if corpus or ground truth changed between conditions."
+  ]
+}

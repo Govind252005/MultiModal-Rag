@@ -1,0 +1,7 @@
+name: reranker_on
+retriever: default
+reranker: true
+top_k: 5
+top_n: 3
+chunking: current
+notes: Keep corpus, questions, prompts, and seeds fixed versus baseline.

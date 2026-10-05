@@ -1,0 +1,7 @@
+name: topk_10
+retriever: default
+reranker: false
+top_k: 10
+top_n: 3
+chunking: current
+notes: Change only top_k versus baseline.

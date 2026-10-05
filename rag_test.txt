@@ -1,0 +1,3 @@
+Multimodal RAG Test Document
+
+The project uses Qwen3 4B as the local language model. The text embedding model is paraphrase-multilingual-MiniLM-L12-v2. The system uses ChromaDB for vector storage and Redis for caching.

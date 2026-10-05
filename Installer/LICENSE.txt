@@ -1,0 +1,45 @@
+MULTIMODAL RAG - SOFTWARE LICENSE AGREEMENT
+=============================================
+
+Copyright (c) 2026 Govind. All rights reserved.
+
+This software ("Multimodal RAG") is provided to you under the terms below.
+By clicking "I accept" during installation, or by installing, copying, or
+otherwise using this software, you agree to be bound by these terms.
+
+1. GRANT OF LICENSE
+   You are granted a personal, non-exclusive, non-transferable license to
+   install and use this software on devices you own or control, for the
+   purpose it was distributed to you.
+
+2. THIRD-PARTY COMPONENTS
+   This installer downloads and configures third-party components on your
+   behalf, including but not limited to:
+     - Ollama (https://ollama.com) - subject to its own license terms.
+     - AI models pulled through Ollama - subject to their respective
+       model licenses (e.g. Qwen license terms).
+   You are responsible for reviewing and accepting the license terms of
+   these third-party components before use.
+
+3. NO WARRANTY
+   This software is provided "AS IS", without warranty of any kind, express
+   or implied, including but not limited to the warranties of
+   merchantability, fitness for a particular purpose, and non-infringement.
+
+4. LIMITATION OF LIABILITY
+   In no event shall the author be liable for any claim, damages, or other
+   liability arising from, out of, or in connection with the software or
+   the use or other dealings in the software.
+
+5. DATA AND PRIVACY
+   Multimodal RAG processes data locally on your machine. Model inference
+   runs through a locally installed Ollama instance. No user content is
+   transmitted to the author or any third party by this application itself.
+
+6. UNINSTALLATION
+   Uninstalling this software removes the application files it installed.
+   Ollama and any downloaded AI models are left in place by default, since
+   they are shared, separately managed system components. You may remove
+   them independently if desired.
+
+If you do not agree to these terms, do not install or use this software.

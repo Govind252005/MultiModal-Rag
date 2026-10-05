@@ -1,0 +1,206 @@
+# Kubernetes manifests for the multimodal RAG app.
+#
+# HONESTY NOTE (read before using these): this development environment has
+# no Kubernetes cluster and no network access, so NONE of this has been
+# run through `kubectl apply`, `kubectl get pods`, or validated against a
+# real API server. It was written carefully against the Kubernetes API
+# shapes and cross-checked for internal consistency (label selectors match,
+# ports match docker-compose.yml/Dockerfiles, env vars match config.py),
+# but "written correctly" and "verified against a live cluster" are
+# different claims — only the first one is being made here. Run
+# `kubectl apply --dry-run=client -f deploy/k8s/` yourself as a first
+# sanity check before applying for real.
+#
+# This targets a single-node-ish deployment (one Ollama pod with a GPU
+# node selector, one backend replica set, one frontend). It does not
+# attempt HPA/autoscaling, a service mesh, or multi-region — this app's
+# actual architecture (see docs/architecture.md) is a single-process
+# backend with in-process rate limiting and caching, so scaling the
+# backend beyond 1 replica needs the Redis-backed cache/rate-limiter
+# already noted as a TODO in docs/security.md before it's safe to do here.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rag-app
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-backend-config
+  namespace: rag-app
+data:
+  OLLAMA_HOST: "http://ollama:11434"
+  LLM_MODEL: "qwen3:4b"
+  OLLAMA_NUM_CTX: "4096"
+  OLLAMA_NUM_PREDICT: "512"
+  OLLAMA_THINK: "0"
+  OLLAMA_STREAM: "1"
+  DEFAULT_PROVIDER: "ollama"
+  PROVIDER_FAILOVER_TO_LOCAL: "1"
+  # Set this to your real ingress hostname before applying.
+  ALLOWED_ORIGINS: "https://rag.example.com"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: rag-app
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-storage
+  namespace: rag-app
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: rag-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ollama }
+  template:
+    metadata:
+      labels: { app: ollama }
+    spec:
+      # GPU scheduling is optional and cluster-specific — remove this
+      # nodeSelector/resources block entirely for a CPU-only cluster
+      # (qwen3:4b will just run slower; see docs/architecture.md).
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports: [{ containerPort: 11434 }]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - { name: models, mountPath: /root/.ollama }
+      volumes:
+        - name: models
+          persistentVolumeClaim: { claimName: ollama-models }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: rag-app
+spec:
+  # ClusterIP only — AUDIT_REPORT.md P0-2 applies here too: Ollama must
+  # never be reachable from outside the cluster, only from the backend.
+  type: ClusterIP
+  selector: { app: ollama }
+  ports: [{ port: 11434, targetPort: 11434 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-backend
+  namespace: rag-app
+spec:
+  replicas: 1  # see the honesty note above re: scaling beyond 1
+  selector:
+    matchLabels: { app: rag-backend }
+  template:
+    metadata:
+      labels: { app: rag-backend }
+    spec:
+      containers:
+        - name: backend
+          image: rag-backend:latest   # build from backend/Dockerfile and push to your registry
+          ports: [{ containerPort: 8000 }]
+          envFrom:
+            - configMapRef: { name: rag-backend-config }
+          readinessProbe:
+            httpGet: { path: /api/health, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/health, port: 8000 }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - { name: storage, mountPath: /app/storage }
+      volumes:
+        - name: storage
+          persistentVolumeClaim: { claimName: backend-storage }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-backend
+  namespace: rag-app
+spec:
+  type: ClusterIP
+  selector: { app: rag-backend }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-frontend
+  namespace: rag-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: rag-frontend }
+  template:
+    metadata:
+      labels: { app: rag-frontend }
+    spec:
+      containers:
+        - name: frontend
+          image: rag-frontend:latest  # build from frontend/Dockerfile and push to your registry
+          ports: [{ containerPort: 80 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-frontend
+  namespace: rag-app
+spec:
+  type: ClusterIP
+  selector: { app: rag-frontend }
+  ports: [{ port: 80, targetPort: 80 }]
+---
+# Ingress — adjust the class/host/TLS secret for your cluster. This is a
+# template, not a working config: `example.com` and the TLS secret name
+# must be replaced before applying (brief §123: production must use HTTPS).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rag-ingress
+  namespace: rag-app
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"   # SSE streaming needs a long read timeout
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"       # required for /api/query/stream to flush chunks
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["rag.example.com"]
+      secretName: rag-tls
+  rules:
+    - host: rag.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: rag-backend, port: { number: 8000 } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: rag-frontend, port: { number: 80 } }

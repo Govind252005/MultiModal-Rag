@@ -1,0 +1,7 @@
+name: reranker_off
+retriever: default
+reranker: false
+top_k: 5
+top_n: 3
+chunking: current
+notes: Paired comparison to reranker_on.
