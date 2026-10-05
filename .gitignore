@@ -113,6 +113,7 @@ Thumbs.db:encryptable
 *.log
 *.tmp
 *.bak
+test.txt
 /tmp/
 
 # Reproducible local evaluation output.
