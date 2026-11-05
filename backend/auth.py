@@ -335,7 +335,21 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def set_role(email: str, role: str) -> Dict[str, Any]:
+def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    clean = (email or "").strip().lower()
+    with _user_lock:
+        u = _load().get(clean)
+        if u:
+            return {
+                "id": u["id"],
+                "email": u["email"],
+                "role": u.get("role", "user"),
+                "org_id": u.get("org_id", "default_org"),
+            }
+    return None
+
+
+def set_role(email: str, role: str, org_id: Optional[str] = None) -> Dict[str, Any]:
     if role not in ("user", "admin", "viewer"):
         raise ValueError(f"Invalid role '{role}'. Must be 'user', 'admin', or 'viewer'.")
     email = (email or "").strip().lower()
@@ -343,12 +357,15 @@ def set_role(email: str, role: str) -> Dict[str, Any]:
     def _apply(users: Dict[str, Any]):
         if email not in users:
             raise ValueError(f"No account with email '{email}'.")
+        target_org = users[email].get("org_id", "default_org")
+        if org_id and target_org != org_id:
+            raise PermissionError("Cannot modify users from another organization.")
         users[email]["role"] = role
         return {
             "id": users[email]["id"],
             "email": email,
             "role": role,
-            "org_id": users[email].get("org_id", "default_org"),
+            "org_id": target_org,
         }
 
     return _mutate_users(_apply)

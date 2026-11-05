@@ -518,13 +518,17 @@ class SetRoleRequest(BaseModel):
 
 @app.get("/api/admin/users")
 def admin_list_users(admin: dict = Depends(require_admin)):
-    return {"users": auth.list_users()}
+    org_id = admin.get("org_id", "default_org") if admin.get("role") != "super_admin" else None
+    return {"users": auth.list_users(org_id=org_id)}
 
 
 @app.post("/api/admin/users/{email}/role")
 def admin_set_role(email: str, req: SetRoleRequest, admin: dict = Depends(require_admin)):
+    org_id = admin.get("org_id", "default_org") if admin.get("role") != "super_admin" else None
     try:
-        result = auth.set_role(email, req.role)
+        result = auth.set_role(email, req.role, org_id=org_id)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     logging_utils.audit_log("admin_role_changed", user_id=admin["id"],
