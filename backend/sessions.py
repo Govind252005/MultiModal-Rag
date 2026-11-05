@@ -92,10 +92,11 @@ def _read_modify_write(session_id: str, modify) -> Optional[Dict[str, Any]]:
 
 
 # ------------------------------------------------------------------ CRUD
-def create_session(owner_id: str, title: str = "New chat") -> Dict[str, Any]:
+def create_session(owner_id: str, title: str = "New chat", org_id: str = "default_org") -> Dict[str, Any]:
     sid = uuid.uuid4().hex[:12]
     session = {
-        "id": sid, "owner_id": owner_id, "title": title or "New chat",
+        "id": sid, "owner_id": owner_id, "org_id": org_id or "default_org",
+        "title": title or "New chat",
         "created_at": _now(), "updated_at": _now(),
         "messages": [], "files": [],
     }
@@ -103,16 +104,27 @@ def create_session(owner_id: str, title: str = "New chat") -> Dict[str, Any]:
     return session
 
 
-def get_session(session_id: str) -> Optional[Dict[str, Any]]:
-    return _read(session_id)
-
-
-def owns(session_id: str, owner_id: str) -> bool:
+def get_session(session_id: str, org_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     s = _read(session_id)
-    return bool(s and s.get("owner_id") == owner_id)
+    if not s:
+        return None
+    if org_id and s.get("org_id", "default_org") != org_id:
+        return None
+    return s
 
 
-def list_sessions(owner_id: str) -> List[Dict[str, Any]]:
+def owns(session_id: str, owner_id: str, org_id: Optional[str] = None) -> bool:
+    s = _read(session_id)
+    if not s:
+        return False
+    if s.get("owner_id") != owner_id:
+        return False
+    if org_id and s.get("org_id", "default_org") != org_id:
+        return False
+    return True
+
+
+def list_sessions(owner_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for p in config.SESSIONS_DIR.glob("*.json"):
         try:
@@ -121,8 +133,11 @@ def list_sessions(owner_id: str) -> List[Dict[str, Any]]:
             continue
         if s.get("owner_id") != owner_id:
             continue
+        if org_id and s.get("org_id", "default_org") != org_id:
+            continue
         out.append({
             "id": s.get("id"), "title": s.get("title", "New chat"),
+            "org_id": s.get("org_id", "default_org"),
             "created_at": s.get("created_at", ""), "updated_at": s.get("updated_at", ""),
             "message_count": len(s.get("messages", [])), "file_count": len(s.get("files", [])),
         })
@@ -130,9 +145,13 @@ def list_sessions(owner_id: str) -> List[Dict[str, Any]]:
     return out
 
 
-def delete_session(session_id: str) -> bool:
+def delete_session(session_id: str, org_id: Optional[str] = None) -> bool:
     p = _path(session_id)
     if p.exists():
+        if org_id:
+            s = _read(session_id)
+            if s and s.get("org_id", "default_org") != org_id:
+                return False
         p.unlink()
         return True
     return False
@@ -165,13 +184,13 @@ def set_files(session_id: str, files: List[Dict[str, Any]]) -> None:
     _read_modify_write(session_id, modify)
 
 
-def ensure_exists(session_id: str, owner_id: str) -> Dict[str, Any]:
+def ensure_exists(session_id: str, owner_id: str, org_id: str = "default_org") -> Dict[str, Any]:
     s = _read(session_id)
     if s:
         return s
     sid = "".join(c for c in session_id if c.isalnum() or c in "-_") or uuid.uuid4().hex[:12]
     session = {
-        "id": sid, "owner_id": owner_id, "title": "New chat",
+        "id": sid, "owner_id": owner_id, "org_id": org_id or "default_org", "title": "New chat",
         "created_at": _now(), "updated_at": _now(), "messages": [], "files": [],
     }
     _write(session)

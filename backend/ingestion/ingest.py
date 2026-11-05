@@ -91,7 +91,8 @@ def _content_hash(path: str) -> str:
 
 
 def ingest_file(path: str, session_id: Optional[str] = None,
-                user_id: Optional[str] = None, mode: str = "max_quality") -> Dict[str, Any]:
+                user_id: Optional[str] = None, mode: str = "max_quality",
+                org_id: Optional[str] = None) -> Dict[str, Any]:
     """Parse + embed + store one file into a user's session library.
 
     `mode` (brief §44): "fast" | "balanced" | "max_quality" — see the
@@ -111,8 +112,9 @@ def ingest_file(path: str, session_id: Optional[str] = None,
     content_hash = _content_hash(path)
     mode = (mode or "max_quality").lower()
     _mode_flags(mode)  # raises ValueError early on an invalid mode name
+    org_id_val = org_id or "default_org"
 
-    existing = vector_store.get_file_fingerprint(file, session_id=session_id, user_id=user_id)
+    existing = vector_store.get_file_fingerprint(file, session_id=session_id, user_id=user_id, org_id=org_id_val)
     if (existing and existing.get("content_hash") == content_hash
             and existing.get("pipeline_version") == config.INGESTION_PIPELINE_VERSION
             and existing.get("ingestion_mode", "max_quality") == mode):
@@ -140,6 +142,7 @@ def ingest_file(path: str, session_id: Optional[str] = None,
             r["metadata"]["session_id"] = session_id
         if user_id:
             r["metadata"]["user_id"] = user_id
+        r["metadata"]["org_id"] = org_id_val
         # brief §45/§46: every chunk records the content hash + pipeline
         # version + ingestion mode that produced it, so a future ingest
         # can tell whether this exact combination was already processed,
@@ -180,7 +183,8 @@ def ingest_file(path: str, session_id: Optional[str] = None,
 
 
 def ingest_path(path: str, session_id: Optional[str] = None,
-                user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+                user_id: Optional[str] = None,
+                org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     p = Path(path)
     results = []
 
@@ -188,11 +192,11 @@ def ingest_path(path: str, session_id: Optional[str] = None,
         for f in sorted(p.rglob("*")):
             if f.is_file():
                 try:
-                    results.append(ingest_file(str(f), session_id, user_id))
+                    results.append(ingest_file(str(f), session_id, user_id, org_id=org_id))
                 except Exception as e:
                     print(f"[WARN] Failed to ingest {f}: {e}")
     else:
-        results.append(ingest_file(str(p), session_id, user_id))
+        results.append(ingest_file(str(p), session_id, user_id, org_id=org_id))
 
     return results
 

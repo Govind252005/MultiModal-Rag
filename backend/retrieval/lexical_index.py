@@ -200,6 +200,7 @@ def search(
     session_id: Optional[str] = None,
     modality: Optional[str] = None,
     files: Optional[List[str]] = None,
+    org_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Return up to top_n hits in the same shape as
     vector_store.get_text_corpus() (id/document/metadata/score), ranked by
@@ -212,6 +213,9 @@ def search(
     clauses = ["lexical_index MATCH ?"]
     params: List[Any] = [match_expr]
 
+    if org_id:
+        clauses.append("COALESCE(json_extract(meta_json, '$.org_id'), 'default_org') = ?")
+        params.append(org_id)
     if user_id:
         clauses.append("user_id = ?")
         params.append(user_id)

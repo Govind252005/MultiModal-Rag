@@ -78,6 +78,7 @@ def multihop_answer(
     history: Optional[List[Dict[str, str]]] = None,
     provider: Optional[str] = None,
     session_dir: Optional[Path] = None,
+    org_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Decompose -> retrieve per sub-question -> synthesize one cited answer."""
     subquestions = _decompose(query, provider, user_id)
@@ -87,6 +88,7 @@ def multihop_answer(
         hits = search.text_query(
             sub, top_k=top_k, modality=modality,
             session_id=session_id, files=files, user_id=user_id,
+            org_id=org_id,
         )
         hit_lists.append(hits)
 

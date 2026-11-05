@@ -142,13 +142,14 @@ def _bm25_search(
     session_id: Optional[str] = None,
     modality: Optional[str] = None,
     files: Optional[List[str]] = None,
+    org_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Reads the persistent lexical index built at ingest time — no corpus
     load or tokenizer pass here (AUDIT_REPORT.md P1-1)."""
     try:
         return lexical_index.search(
             query, top_n=top_n, user_id=user_id, session_id=session_id,
-            modality=modality, files=files,
+            modality=modality, files=files, org_id=org_id,
         )
     except Exception as exc:
         logger.exception("Lexical search failed: %s", exc)
@@ -219,9 +220,10 @@ def text_query(
     session_id: Optional[str] = None,
     files: Optional[List[str]] = None,
     user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     where = vector_store.build_where(
-        session_id=session_id, modality=modality, files=files, user_id=user_id)
+        session_id=session_id, modality=modality, files=files, user_id=user_id, org_id=org_id)
     requested_section = _requested_section(query)
 
     # 1) Dense text search
@@ -235,6 +237,7 @@ def text_query(
     bm25_hits = _bm25_search(
         query, top_n=max(top_k, config.BM25_CANDIDATES),
         user_id=user_id, session_id=session_id, modality=modality, files=files,
+        org_id=org_id,
     )
 
     # 3) Optional CLIP text-to-image dense branch — skipped entirely when
@@ -244,12 +247,13 @@ def text_query(
     clip_hits: List[Dict[str, Any]] = []
 
     if modality in ("all", "image") and (modality == "image" or _visual_query(query)) and vector_store.has_images(
-        session_id=session_id, user_id=user_id, files=files
+        session_id=session_id, user_id=user_id, org_id=org_id, files=files
     ):
         img_where = vector_store.build_where(
             session_id=session_id,
             files=files,
             user_id=user_id,
+            org_id=org_id,
         )
 
         clip_vec = embeddings.embed_clip_text([query])[0].tolist()
@@ -297,17 +301,18 @@ def image_query(
     session_id: Optional[str] = None,
     files: Optional[List[str]] = None,
     user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     from backend.ingestion.image_pipeline import caption_image, ocr_image
     caption = caption_image(image)
     ocr_text = ocr_image(image)
 
-    img_where = vector_store.build_where(session_id=session_id, files=files, user_id=user_id)
+    img_where = vector_store.build_where(session_id=session_id, files=files, user_id=user_id, org_id=org_id)
     clip_vec = embeddings.embed_clip_image([image])[0].tolist()
     clip_hits = vector_store.query_images(clip_vec, top_k=top_k, where=img_where)
 
     probe = (caption + ". " + ocr_text).strip()
-    txt_where = vector_store.build_where(session_id=session_id, files=files, user_id=user_id)
+    txt_where = vector_store.build_where(session_id=session_id, files=files, user_id=user_id, org_id=org_id)
     text_vec = embeddings.embed_text([probe])[0].tolist()
     text_hits = vector_store.query_text(text_vec, top_k=top_k, where=txt_where)
 

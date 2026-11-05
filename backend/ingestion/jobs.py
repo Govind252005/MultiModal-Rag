@@ -48,23 +48,26 @@ def submit(
     paths: List[str],
     session_id: str,
     user_id: str,
-    on_complete: Optional[Callable[[str, str], None]] = None,
+    on_complete: Optional[Callable[..., None]] = None,
     mode: str = "max_quality",
+    org_id: Optional[str] = None,
 ) -> str:
     """Enqueue a background ingest of already-saved *paths*.
 
-    Returns a job_id immediately. `on_complete(session_id, user_id)` (if given)
+    Returns a job_id immediately. `on_complete(session_id, user_id, org_id)` (if given)
     runs after all files finish, on the worker thread — used to refresh the
     session file list + invalidate caches, mirroring the sync endpoint.
     `mode` (brief §44) is passed straight through to ingest_file() for
     every file in this job.
     """
     job_id = uuid.uuid4().hex
+    org_id_val = org_id or "default_org"
     with _lock:
         _jobs[job_id] = {
             "job_id": job_id,
             "session_id": session_id,
             "user_id": user_id,
+            "org_id": org_id_val,
             "status": "queued",           # queued | running | done | error
             "total": len(paths),
             "completed": 0,
@@ -73,18 +76,18 @@ def submit(
             "updated_at": _now(),
             "error": None,
         }
-    _executor.submit(_run, job_id, paths, session_id, user_id, on_complete, mode)
+    _executor.submit(_run, job_id, paths, session_id, user_id, org_id_val, on_complete, mode)
     return job_id
 
 
-def _run(job_id: str, paths: List[str], session_id: str, user_id: str,
-         on_complete: Optional[Callable[[str, str], None]], mode: str = "max_quality") -> None:
+def _run(job_id: str, paths: List[str], session_id: str, user_id: str, org_id: str,
+         on_complete: Optional[Callable[..., None]], mode: str = "max_quality") -> None:
     _set(job_id, status="running", updated_at=_now())
     results: List[Dict[str, Any]] = []
     for path in paths:
         try:
             res = ingest_mod.ingest_file(
-                path, session_id=session_id, user_id=user_id, mode=mode)
+                path, session_id=session_id, user_id=user_id, mode=mode, org_id=org_id)
         except Exception as exc:                       # per-file isolation
             res = {"file": path, "error": str(exc)}
         results.append(res)
@@ -97,7 +100,12 @@ def _run(job_id: str, paths: List[str], session_id: str, user_id: str,
 
     try:
         if on_complete is not None:
-            on_complete(session_id, user_id)
+            import inspect
+            sig = inspect.signature(on_complete)
+            if len(sig.parameters) >= 3:
+                on_complete(session_id, user_id, org_id)
+            else:
+                on_complete(session_id, user_id)
         _set(job_id, status="done", updated_at=_now())
     except Exception as exc:
         _set(job_id, status="error", error=str(exc), updated_at=_now())

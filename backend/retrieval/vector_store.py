@@ -57,9 +57,12 @@ def build_where(
     modality: Optional[str] = None,
     files: Optional[List[str]] = None,
     user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Compose a Chroma `where` filter. Chroma needs $and for >1 condition."""
     clauses: List[Dict[str, Any]] = []
+    if org_id:
+        clauses.append({"org_id": org_id})
     if user_id:
         clauses.append({"user_id": user_id})
     if session_id:
@@ -78,10 +81,13 @@ def build_where(
 # ------------------------------------------------------------------
 # Writing
 # ------------------------------------------------------------------
-def add_text_chunks(ids, embeddings, documents, metadatas) -> None:
+def add_text_chunks(ids, embeddings, documents, metadatas, org_id: str = "default_org") -> None:
     if not ids:
         return
-    metas = [_clean_meta({**m, "ingested_at": m.get("ingested_at", _now())}) for m in metadatas]
+    metas = [
+        _clean_meta({**m, "org_id": m.get("org_id", org_id or "default_org"), "ingested_at": m.get("ingested_at", _now())})
+        for m in metadatas
+    ]
     _text_col.add(ids=ids, embeddings=embeddings, documents=documents, metadatas=metas)
     # Keep the persistent lexical (BM25/FTS5) index in lockstep with the
     # dense index instead of rebuilding it from the corpus at query time
@@ -93,10 +99,13 @@ def add_text_chunks(ids, embeddings, documents, metadatas) -> None:
         print(f"[vector_store] lexical index update failed: {exc}")
 
 
-def add_images(ids, embeddings, documents, metadatas) -> None:
+def add_images(ids, embeddings, documents, metadatas, org_id: str = "default_org") -> None:
     if not ids:
         return
-    metas = [_clean_meta({**m, "ingested_at": m.get("ingested_at", _now())}) for m in metadatas]
+    metas = [
+        _clean_meta({**m, "org_id": m.get("org_id", org_id or "default_org"), "ingested_at": m.get("ingested_at", _now())})
+        for m in metadatas
+    ]
     _image_col.add(ids=ids, embeddings=embeddings, documents=documents, metadatas=metas)
 
 
@@ -168,9 +177,10 @@ def get_by_id(doc_id: str) -> Optional[Dict[str, Any]]:
 
 
 def list_files(session_id: Optional[str] = None,
-               user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Per-file summary, scoped to a chat session and/or user."""
-    where = build_where(session_id=session_id, user_id=user_id)
+               user_id: Optional[str] = None,
+               org_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Per-file summary, scoped to a chat session, user, and/or org."""
+    where = build_where(session_id=session_id, user_id=user_id, org_id=org_id)
     summary: Dict[str, Dict[str, Any]] = {}
     for col in (_text_col, _image_col):
         got = col.get(where=where, include=["metadatas"])
@@ -242,13 +252,14 @@ def stats() -> Dict[str, int]:
 
 
 def get_file_fingerprint(file: str, session_id: Optional[str] = None,
-                         user_id: Optional[str] = None) -> Optional[Dict[str, str]]:
+                         user_id: Optional[str] = None,
+                         org_id: Optional[str] = None) -> Optional[Dict[str, str]]:
     """brief §45: cheap existence+metadata check used to skip re-ingesting
     a file whose content/pipeline version/ingestion mode hasn't changed.
     Returns {"content_hash": ..., "pipeline_version": ..., "ingestion_mode": ...}
     from one existing chunk (every chunk of the same ingestion run
     carries the same values), or None if the file has no chunks yet."""
-    where = build_where(session_id=session_id, user_id=user_id, files=[file])
+    where = build_where(session_id=session_id, user_id=user_id, org_id=org_id, files=[file])
     try:
         got = _text_col.get(where=where, limit=1, include=["metadatas"])
         metas = got.get("metadatas") or []
@@ -266,6 +277,7 @@ def get_file_fingerprint(file: str, session_id: Optional[str] = None,
 
 def has_images(session_id: Optional[str] = None,
                user_id: Optional[str] = None,
+               org_id: Optional[str] = None,
                files: Optional[List[str]] = None) -> bool:
     """Cheap existence check used to skip the CLIP retrieval branch entirely
     when the current scope has no images at all (AUDIT_REPORT.md P1-6: CLIP
@@ -273,7 +285,7 @@ def has_images(session_id: Optional[str] = None,
     sessions). Fails open (returns True) if the check itself errors, so a
     version mismatch in the underlying client never silently disables image
     retrieval."""
-    where = build_where(session_id=session_id, user_id=user_id, files=files)
+    where = build_where(session_id=session_id, user_id=user_id, org_id=org_id, files=files)
     try:
         got = _image_col.get(where=where, limit=1, include=[])
         return bool(got.get("ids"))

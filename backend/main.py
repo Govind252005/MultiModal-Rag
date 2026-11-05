@@ -253,7 +253,8 @@ def require_admin(user: dict = Depends(get_user)) -> dict:
 
 
 def _require_owner(session_id: str, user: dict):
-    if not session_store.owns(session_id, user["id"]):
+    org_id = user.get("org_id", "default_org")
+    if not session_store.owns(session_id, user["id"], org_id=org_id):
         raise HTTPException(404, "Session not found.")
 
 
@@ -357,16 +358,18 @@ def _history_for(session_id: str) -> List[dict]:
             out.append({"role": m["role"], "content": m["text"]})
     return out
 
-def _cache_key(route: str, user_id: str, payload: dict) -> str:
+def _cache_key(route: str, user_id: str, payload: dict, org_id: Optional[str] = None) -> str:
     # Bump this whenever retrieval/prompt/output semantics change; otherwise
     # Redis can return an older verbose answer for the same question.
+    org = org_id or "default_org"
     cache_payload = {
         "answer_pipeline_version": "2026-10-04-grounded-output-v5",
+        "org_id": org,
         "payload": payload,
     }
     blob = json.dumps(cache_payload, sort_keys=True, ensure_ascii=False)
     digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
-    return f"{route}:{user_id}:{digest}"
+    return f"{route}:{org}:{user_id}:{digest}"
 
 
 def _history_hash(history: List[dict]) -> str:
@@ -730,7 +733,8 @@ def me(user: dict = Depends(get_user)):
 # ------------------------------------------------------------------ sessions
 @app.post("/api/sessions")
 def create_session(req: CreateSessionRequest, user: dict = Depends(get_user)):
-    return session_store.create_session(user["id"], req.title)
+    org_id = user.get("org_id", "default_org")
+    return session_store.create_session(user["id"], req.title, org_id=org_id)
 
 
 @app.get("/api/sessions")
@@ -743,7 +747,8 @@ def list_sessions(user: dict = Depends(get_user),
     refresh path) legitimately wants the whole thing."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
-    all_sessions = session_store.list_sessions(user["id"])
+    org_id = user.get("org_id", "default_org")
+    all_sessions = session_store.list_sessions(user["id"], org_id=org_id)
     page = all_sessions[offset:offset + limit]
     return {"sessions": page, "total": len(all_sessions), "limit": limit, "offset": offset}
 
@@ -756,8 +761,9 @@ def get_session(session_id: str, user: dict = Depends(get_user),
     for existing callers — omitting both still returns every message,
     exactly as before this option existed."""
     _require_owner(session_id, user)
-    s = session_store.get_session(session_id)
-    s["files"] = vector_store.list_files(session_id=session_id, user_id=user["id"])
+    org_id = user.get("org_id", "default_org")
+    s = session_store.get_session(session_id, org_id=org_id)
+    s["files"] = vector_store.list_files(session_id=session_id, user_id=user["id"], org_id=org_id)
     total = len(s.get("messages", []))
     if message_limit is not None:
         limit = max(1, min(message_limit, 500))
@@ -821,7 +827,8 @@ def _validate_uploads(files: List[UploadFile]) -> None:
 @app.post("/api/ingest")
 async def ingest(session_id: str = Form(...), files: List[UploadFile] = File(...),
                  mode: str = Form("max_quality"), user: dict = Depends(get_user)):
-    session_store.ensure_exists(session_id, user["id"])
+    org_id = user.get("org_id", "default_org")
+    session_store.ensure_exists(session_id, user["id"], org_id=org_id)
     _require_owner(session_id, user)
     _check_ingest_rate_limit(user["id"])
     _validate_uploads(files)
@@ -831,7 +838,7 @@ async def ingest(session_id: str = Form(...), files: List[UploadFile] = File(...
     for up in files:
         try:
             path = _save_upload(up, session_id)
-            result = ingest_mod.ingest_file(str(path), session_id=session_id, user_id=user["id"], mode=mode)
+            result = ingest_mod.ingest_file(str(path), session_id=session_id, user_id=user["id"], mode=mode, org_id=org_id)
             results.append(result)
             logging_utils.audit_log("file_uploaded", user_id=user["id"], session_id=session_id,
                                     filename=up.filename, chunks=result.get("chunks"),
@@ -840,18 +847,19 @@ async def ingest(session_id: str = Form(...), files: List[UploadFile] = File(...
             results.append({"file": up.filename, "error": str(exc)})
             logging_utils.audit_log("file_upload_failed", user_id=user["id"], session_id=session_id,
                                     filename=up.filename, reason=str(exc))
-        file_list = vector_store.list_files(session_id=session_id, user_id=user["id"])
+    file_list = vector_store.list_files(session_id=session_id, user_id=user["id"], org_id=org_id)
     session_store.set_files(session_id, file_list)
     _invalidate_user_cache(user["id"])
     return {"status": "ok", "ingested": results, "files": file_list}
 
 
 # --- Phase 3D: async ingestion (opt-in; the sync /api/ingest above is unchanged)
-def _refresh_after_ingest(session_id: str, user_id: str) -> None:
+def _refresh_after_ingest(session_id: str, user_id: str, org_id: Optional[str] = None) -> None:
     """Runs on the worker thread when an async job finishes: refresh the
     session's file list and drop stale query caches — same side effects the
     synchronous endpoint performs inline."""
-    file_list = vector_store.list_files(session_id=session_id, user_id=user_id)
+    org_val = org_id or "default_org"
+    file_list = vector_store.list_files(session_id=session_id, user_id=user_id, org_id=org_val)
     session_store.set_files(session_id, file_list)
     _invalidate_user_cache(user_id)
 
@@ -861,7 +869,8 @@ async def ingest_async(session_id: str = Form(...),
                        files: List[UploadFile] = File(...),
                        mode: str = Form("max_quality"),
                        user: dict = Depends(get_user)):
-    session_store.ensure_exists(session_id, user["id"])
+    org_id = user.get("org_id", "default_org")
+    session_store.ensure_exists(session_id, user["id"], org_id=org_id)
     _require_owner(session_id, user)
     _check_ingest_rate_limit(user["id"])
     _validate_uploads(files)
@@ -874,7 +883,7 @@ async def ingest_async(session_id: str = Form(...),
         paths.append(str(path))
     job_id = ingest_jobs.submit(
         paths, session_id=session_id, user_id=user["id"],
-        on_complete=_refresh_after_ingest, mode=mode,
+        on_complete=_refresh_after_ingest, mode=mode, org_id=org_id,
     )
     return {"status": "accepted", "job_id": job_id,
             "queued": [Path(p).name for p in paths]}
@@ -885,7 +894,8 @@ def ingest_status(job_id: str, user: dict = Depends(get_user)):
     job = ingest_jobs.status(job_id)
     if job is None:
         raise HTTPException(404, "Job not found.")
-    if job.get("user_id") != user["id"]:
+    org_id = user.get("org_id", "default_org")
+    if job.get("user_id") != user["id"] or job.get("org_id", "default_org") != org_id:
         raise HTTPException(404, "Job not found.")
     return job
 
@@ -917,6 +927,8 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
     if not req.query.strip():
         raise HTTPException(400, "Query is empty.")
     session_store.ensure_exists(req.session_id, user["id"])
+    org_id = user.get("org_id", "default_org")
+    session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
 
@@ -943,7 +955,7 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
         "phase3": [use_rewrite, use_hyde, use_colbert, use_multihop],
         "persist_messages": req.persist_messages,
     }
-    key = _cache_key("query", user["id"], payload)
+    key = _cache_key("query", user["id"], payload, org_id=org_id)
     cached = cache_store.get_json(key)
     if cached is not None:
         return cached
@@ -956,6 +968,7 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
             session_id=req.session_id, files=req.files, user_id=user["id"],
             history=history, provider=resolved_provider,
             session_dir=_session_dir(req.session_id),
+            org_id=org_id,
         )
         retrieval_ms = (time.perf_counter() - start_total) * 1000 * 0.5
         gen_ms = (time.perf_counter() - start_total) * 1000 * 0.5
@@ -981,6 +994,7 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
             session_id=req.session_id,
             files=req.files,
             user_id=user["id"],
+            org_id=org_id,
         )
 
         # Optional late-interaction rerank AFTER the existing pipeline.
@@ -1045,7 +1059,8 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
     """
     if not req.query.strip():
         raise HTTPException(400, "Query is empty.")
-    session_store.ensure_exists(req.session_id, user["id"])
+    org_id = user.get("org_id", "default_org")
+    session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
 
@@ -1065,6 +1080,7 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
     hits = search.text_query(
         search_text, top_k=req.top_k, modality=req.modality,
         session_id=req.session_id, files=req.files, user_id=user["id"],
+        org_id=org_id,
     )
     if _flag(req.colbert, config.COLBERT_ENABLED):
         hits = late_interaction.rerank(req.query, hits)
@@ -1201,6 +1217,7 @@ def extract(req: QueryRequest, user: dict = Depends(get_user)):
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
 
+    org_id = user.get("org_id", "default_org")
     resolved_provider = _resolve_provider(req.provider, user["id"])
     history = _history_for(req.session_id)
     payload = {
@@ -1214,7 +1231,7 @@ def extract(req: QueryRequest, user: dict = Depends(get_user)):
         "model": _model_for_provider(resolved_provider),
         "history_hash": _history_hash(history),
     }
-    key = _cache_key("extract", user["id"], payload)
+    key = _cache_key("extract", user["id"], payload, org_id=org_id)
     cached = cache_store.get_json(key)
     if cached is not None:
         return cached
@@ -1226,6 +1243,7 @@ def extract(req: QueryRequest, user: dict = Depends(get_user)):
         session_id=req.session_id,
         files=req.files,
         user_id=user["id"],
+        org_id=org_id,
     )
     result = answer_mod.extract_entities(
         req.query, hits, history=history,
@@ -1241,7 +1259,8 @@ def extract(req: QueryRequest, user: dict = Depends(get_user)):
 def summarize(req: QueryRequest, user: dict = Depends(get_user)):
     if not req.query.strip():
         raise HTTPException(400, "Query is empty.")
-    session_store.ensure_exists(req.session_id, user["id"])
+    org_id = user.get("org_id", "default_org")
+    session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
 
@@ -1258,7 +1277,7 @@ def summarize(req: QueryRequest, user: dict = Depends(get_user)):
         "model": _model_for_provider(resolved_provider),
         "history_hash": _history_hash(history),
     }
-    key = _cache_key("summarize", user["id"], payload)
+    key = _cache_key("summarize", user["id"], payload, org_id=org_id)
     cached = cache_store.get_json(key)
     if cached is not None:
         return cached
@@ -1270,6 +1289,7 @@ def summarize(req: QueryRequest, user: dict = Depends(get_user)):
         session_id=req.session_id,
         files=req.files,
         user_id=user["id"],
+        org_id=org_id,
     )
     result = answer_mod.summarize_document(
         req.query, hits, history=history,
@@ -1285,7 +1305,8 @@ async def query_image(session_id: str = Form(...), file: UploadFile = File(...),
                       top_k: int = Form(config.DEFAULT_TOP_K), files: Optional[str] = Form(None),
                       provider: Optional[str] = Form(None),
                       user: dict = Depends(get_user)):
-    session_store.ensure_exists(session_id, user["id"])
+    org_id = user.get("org_id", "default_org")
+    session_store.ensure_exists(session_id, user["id"], org_id=org_id)
     _require_owner(session_id, user)
     _check_chat_rate_limit(user["id"])
 
@@ -1299,7 +1320,7 @@ async def query_image(session_id: str = Form(...), file: UploadFile = File(...),
         "provider": resolved_provider,
         "model": _model_for_provider(resolved_provider),
     }
-    key = _cache_key("query_image", user["id"], payload)
+    key = _cache_key("query_image", user["id"], payload, org_id=org_id)
     cached = cache_store.get_json(key)
     if cached is not None:
         return cached
@@ -1312,7 +1333,7 @@ async def query_image(session_id: str = Form(...), file: UploadFile = File(...),
 
     file_filter = [f for f in (files or "").split(",") if f] or None
     res = search.image_query(image, top_k=top_k, session_id=session_id,
-                             files=file_filter, user_id=user["id"])
+                             files=file_filter, user_id=user["id"], org_id=org_id)
     hits = res["hits"]
     pseudo_q = (f"Describe and summarize the content related to this image "
                 f"(caption: '{res['query_caption']}').")
@@ -1343,7 +1364,8 @@ async def query_audio(session_id: str = Form(...), file: UploadFile = File(...),
                       top_k: int = Form(config.DEFAULT_TOP_K), files: Optional[str] = Form(None),
                       provider: Optional[str] = Form(None),
                       user: dict = Depends(get_user)):
-    session_store.ensure_exists(session_id, user["id"])
+    org_id = user.get("org_id", "default_org")
+    session_store.ensure_exists(session_id, user["id"], org_id=org_id)
     _require_owner(session_id, user)
     _check_chat_rate_limit(user["id"])
 
@@ -1357,7 +1379,7 @@ async def query_audio(session_id: str = Form(...), file: UploadFile = File(...),
         "provider": resolved_provider,
         "model": _model_for_provider(resolved_provider),
     }
-    key = _cache_key("query_audio", user["id"], payload)
+    key = _cache_key("query_audio", user["id"], payload, org_id=org_id)
     cached = cache_store.get_json(key)
     if cached is not None:
         return cached
@@ -1370,7 +1392,8 @@ async def query_audio(session_id: str = Form(...), file: UploadFile = File(...),
 
     file_filter = [f for f in (files or "").split(",") if f] or None
     hits = search.text_query(transcript, top_k=top_k, modality="all",
-                             session_id=session_id, files=file_filter, user_id=user["id"])
+                             session_id=session_id, files=file_filter, user_id=user["id"],
+                             org_id=org_id)
     generated = answer_mod.answer_query(transcript, hits, history=_history_for(session_id),
                                         provider=resolved_provider, user_id=user["id"],
                                         session_dir=_session_dir(session_id))
