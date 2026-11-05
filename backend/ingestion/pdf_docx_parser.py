@@ -286,10 +286,15 @@ def parse_document(path: str, image_dir: Optional[Path] = None,
                    extract_embedded_images: bool = True) -> List[Dict[str, Any]]:
     ext = Path(path).suffix.lower()
     if ext == ".pdf":
+        from backend.ingestion.doc_safety import validate_pdf_safety
+        validate_pdf_safety(path)
         return parse_pdf(path, image_dir=image_dir, ocr_fallback=ocr_fallback,
                          extract_tables=extract_tables,
                          extract_embedded_images=extract_embedded_images)
     if ext in (".docx", ".doc"):
+        from backend.ingestion.doc_safety import validate_docx_safety
+        if ext == ".docx":
+            validate_docx_safety(path)
         return parse_docx(path, image_dir=image_dir,
                           extract_embedded_images=extract_embedded_images)
     raise ValueError(f"Unsupported document type: {ext}")
