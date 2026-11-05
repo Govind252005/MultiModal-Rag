@@ -226,8 +226,8 @@ def text_query(
         session_id=session_id, modality=modality, files=files, user_id=user_id, org_id=org_id)
     requested_section = _requested_section(query)
 
-    # 1) Dense text search
-    text_vec = embeddings.embed_text([query])[0].tolist()
+    # 1) Dense text search (cached query embedding)
+    text_vec = embeddings.embed_text_cached(query)[0].tolist()
     dense_text_hits = vector_store.query_text(
         text_vec, top_k=max(top_k, config.DENSE_CANDIDATES), where=where
     )

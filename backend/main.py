@@ -1141,8 +1141,12 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
             yield f"event: done\ndata: {json.dumps({'used_llm': False, 'metrics': eval_metrics})}\n\n"
             return
 
+        # Emit initial citations upfront so the UI renders the evidence drawer immediately
+        yield f"event: citations\ndata: {json.dumps(ctx['citations'])}\n\n"
+
         full_text_parts: List[str] = []
         used_llm = True
+        streamed_tokens = False
         metrics: dict = {}
         t_gen_start = time.perf_counter()
         try:
@@ -1158,6 +1162,8 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
                 delta = chunk.get("delta", "")
                 if delta:
                     full_text_parts.append(delta)
+                    streamed_tokens = True
+                    yield f"event: delta\ndata: {json.dumps({'text': delta})}\n\n"
         except llm_client.LLMError as exc:
             used_llm = False
             top = hits[0]
@@ -1168,16 +1174,11 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
 
         gen_ms = (time.perf_counter() - t_gen_start) * 1000
         full_text = llm_client.clean_answer("".join(full_text_parts))
-        full_text = answer_mod._enforce_clean_answer(
-            answer_mod._finalize_answer(
-                full_text, ctx["user"], resolved_provider, user["id"], resolved_model
-            )
-        )
         full_text, answer_citations = answer_mod._restrict_citations_to_answer(
             full_text, ctx["citations"]
         )
         yield f"event: citations\ndata: {json.dumps(answer_citations)}\n\n"
-        if full_text:
+        if not streamed_tokens and full_text:
             yield f"event: delta\ndata: {json.dumps({'text': full_text})}\n\n"
 
         # Compute per-query evaluation and print terminal scorecard

@@ -92,6 +92,49 @@ def embed_clip_image(images: List[Image.Image]) -> np.ndarray:
     return vecs.astype(np.float32)
 
 
+# ------------------------------------------------------------------ Query Cache & Async Workers (Phase 3)
+import asyncio
+import collections
+from concurrent.futures import ThreadPoolExecutor
+
+_query_cache: collections.OrderedDict[str, np.ndarray] = collections.OrderedDict()
+_query_cache_lock = threading.Lock()
+MAX_QUERY_CACHE = 512
+
+_embed_pool = ThreadPoolExecutor(max_workers=max(2, getattr(config, "INGEST_ASYNC_WORKERS", 2)))
+
+
+def embed_text_cached(text: str) -> np.ndarray:
+    """Fast-path for single text queries with LRU caching."""
+    clean = (text or "").strip()
+    with _query_cache_lock:
+        if clean in _query_cache:
+            _query_cache.move_to_end(clean)
+            return _query_cache[clean]
+    vec = embed_text([clean])
+    with _query_cache_lock:
+        _query_cache[clean] = vec
+        while len(_query_cache) > MAX_QUERY_CACHE:
+            _query_cache.popitem(last=False)
+    return vec
+
+
+async def aembed_text(texts: List[str]) -> np.ndarray:
+    """Async non-blocking embedding calculation."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_embed_pool, embed_text, texts)
+
+
+async def aembed_clip_text(texts: List[str]) -> np.ndarray:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_embed_pool, embed_clip_text, texts)
+
+
+async def aembed_clip_image(images: List[Image.Image]) -> np.ndarray:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_embed_pool, embed_clip_image, images)
+
+
 def warmup() -> None:
     """Force-load both models (call at server startup to avoid first-query lag)."""
     _get_text_model()
