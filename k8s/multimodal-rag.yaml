@@ -1,0 +1,167 @@
+# ============================================================================
+#  Kubernetes manifests — Multimodal Offline RAG "as a service"
+#
+#  Deploys the ALL-IN-ONE image (Ollama + Qwen + backend + UI + all ML models
+#  baked in) as a single, self-contained workload. One container, one port.
+#
+#  Apply with:   kubectl apply -f k8s/multimodal-rag.yaml
+#  Then set the image reference below to wherever you pushed the image.
+#
+#  IMPORTANT scaling note: the vector store (ChromaDB) is EMBEDDED and writes to
+#  a local directory (/data). It is therefore single-writer. Run exactly ONE
+#  replica. Do not scale horizontally without switching to an external vector DB
+#  — that would require changing the retrieval layer, which is out of scope here.
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: multimodal-rag
+---
+# Persistent storage for all writable data: chroma index, uploaded files,
+# sessions, users.json, secret keys. RAG_DATA_HOME=/data (set in the image).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rag-data
+  namespace: multimodal-rag
+spec:
+  accessModes:
+    - ReadWriteOnce # single-writer, matches the single replica
+  resources:
+    requests:
+      storage: 20Gi # bump for large corpora
+---
+# The workload itself. ONE container that runs Ollama + Qwen + backend + UI.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multimodal-rag
+  namespace: multimodal-rag
+  labels:
+    app: multimodal-rag
+spec:
+  replicas: 1 # MUST stay 1 — embedded ChromaDB is single-writer
+  strategy:
+    type: Recreate # never run two pods against the same PVC at once
+  selector:
+    matchLabels:
+      app: multimodal-rag
+  template:
+    metadata:
+      labels:
+        app: multimodal-rag
+    spec:
+      # The image can take a while to start (Ollama warm-up + model load).
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: multimodal-rag
+          # >>> Replace with your pushed image, e.g. registry.example.com/multimodal-rag:allinone
+          image: multimodal-rag:allinone
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # All writable data (chroma, storage, sessions, users.json) -> /data (the PVC).
+            - name: RAG_DATA_HOME
+              value: "/data"
+            - name: RAG_HOST
+              value: "0.0.0.0"
+            - name: RAG_PORT
+              value: "8000"
+            - name: LLM_MODEL
+              value: "qwen3:8b"
+            - name: WARMUP_ON_STARTUP
+              value: "1"
+          volumeMounts:
+            # Persist writable data ONLY. Do NOT mount anything over
+            # /opt/models/... — that is where the baked HF/Ollama weights live,
+            # and a volume there would hide them (empty dir => models "missing").
+            - name: rag-data
+              mountPath: /data
+          # --- Probes --------------------------------------------------------
+          # startupProbe guards the slow first boot (model warm-up). Until it
+          # passes, liveness/readiness are not enforced. With failureThreshold 60
+          # and period 10s, the app has up to ~10 min to come up before a restart.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 4
+          # --- Resources -----------------------------------------------------
+          # A 7B LLM + embedding/vision models on CPU is memory-hungry. Tune to
+          # your cluster; these are sane starting floors/ceilings.
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "10Gi"
+            # --- GPU (optional) ---------------------------------------------
+            # For a GPU build (CUDA torch wheel + GPU node), add under limits:
+            #   nvidia.com/gpu: "1"
+            # and schedule onto a GPU node pool. See DEPLOY_AS_A_SERVICE.md.
+      volumes:
+        - name: rag-data
+          persistentVolumeClaim:
+            claimName: rag-data
+---
+# Stable in-cluster address for the pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: multimodal-rag
+  namespace: multimodal-rag
+  labels:
+    app: multimodal-rag
+spec:
+  type: ClusterIP
+  selector:
+    app: multimodal-rag
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# External access. Assumes an NGINX ingress controller; adjust annotations/class
+# for your controller. The proxy-body-size bump is REQUIRED so large PDF/audio
+# uploads aren't rejected (the app allows up to ~200 MB uploads).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multimodal-rag
+  namespace: multimodal-rag
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+    # >>> Replace with your hostname.
+    - host: rag.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: multimodal-rag
+                port:
+                  number: 80

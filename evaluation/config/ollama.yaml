@@ -1,0 +1,11 @@
+# Ollama Provider Configuration
+provider: "ollama"
+label: "Local Qwen (Ollama)"
+model: "qwen3:4b"
+host: "http://localhost:11434"
+timeout_seconds: 120
+num_ctx: 4096
+num_predict: 512
+temperature: 0.1
+think: false
+stream: true

@@ -1,0 +1,5 @@
+# Dependencies for evaluation/ only — deliberately kept separate from
+# backend/requirements.txt so a production backend image doesn't need to
+# carry matplotlib just to run inference. Install with:
+#   pip install -r evaluation/requirements.txt
+matplotlib>=3.8

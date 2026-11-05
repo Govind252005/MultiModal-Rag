@@ -1,0 +1,20 @@
+[
+  {
+    "question_id": "example_001",
+    "question": "REPLACE ME: a factual question about a document you've actually ingested",
+    "expected_answer": "REPLACE ME: the correct answer, in your own words",
+    "relevant_document_ids": ["REPLACE_ME.pdf"],
+    "relevant_chunk_ids": [],
+    "required_citations": ["REPLACE_ME.pdf"],
+    "category": "factual"
+  },
+  {
+    "question_id": "example_002",
+    "question": "REPLACE ME: a question whose answer genuinely is NOT in your corpus",
+    "expected_answer": "The available sources do not contain enough information to answer this reliably.",
+    "relevant_document_ids": [],
+    "relevant_chunk_ids": [],
+    "required_citations": [],
+    "category": "unanswerable"
+  }
+]

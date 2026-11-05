@@ -1,0 +1,516 @@
+{
+  "dataset_name": "Northstar Analytics Add-on Pilot",
+  "version": "1.0",
+  "synthetic": true,
+  "note": "Separate add-on benchmark. Do not overwrite or merge into the existing 190-question benchmark without explicit dataset versioning. Chunk IDs are intentionally blank until corpus ingestion and relevance review.",
+  "questions": [
+    {
+      "question_id": "ADDON-001",
+      "question": "What was Northstar's Q1 2026 revenue?",
+      "expected_answer": "$420,000",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/01_quarterly_finance_summary.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/01_quarterly_finance_summary.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-002",
+      "question": "What was the operating cost in Q2 2026?",
+      "expected_answer": "$301,000",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/01_quarterly_finance_summary.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/01_quarterly_finance_summary.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-003",
+      "question": "Which quarter had the highest revenue among Q1-Q3 2026?",
+      "expected_answer": "Q3 2026, with $492,000",
+      "answerable": true,
+      "category": "comparison",
+      "modality": "tabular",
+      "source_file": "corpus/pdf/01_quarterly_finance_summary.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/01_quarterly_finance_summary.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-004",
+      "question": "How many support tickets were resolved in September?",
+      "expected_answer": "1,405",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "tabular",
+      "source_file": "corpus/pdf/02_operations_service_targets.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/02_operations_service_targets.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-005",
+      "question": "What is the first-response support target?",
+      "expected_answer": "Within 4 business hours",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/02_operations_service_targets.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/02_operations_service_targets.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-006",
+      "question": "How long are standard support tickets retained?",
+      "expected_answer": "180 days",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/03_data_governance_rules.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/03_data_governance_rules.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-007",
+      "question": "Who approves a data export request?",
+      "expected_answer": "The workspace owner; it must also be logged in the audit register",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/03_data_governance_rules.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/03_data_governance_rules.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-008",
+      "question": "How many users completed onboarding in September?",
+      "expected_answer": "186 users",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "text",
+      "source_file": "corpus/docx/01_product_release_brief.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/01_product_release_brief.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-009",
+      "question": "When was the mobile dashboard released?",
+      "expected_answer": "15 September 2026",
+      "answerable": true,
+      "category": "factual",
+      "modality": "image",
+      "source_file": "corpus/docx/01_product_release_brief.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/01_product_release_brief.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-010",
+      "question": "What is the Severity 1 acknowledgement target?",
+      "expected_answer": "Within 15 minutes",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/02_operations_service_targets.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/02_operations_service_targets.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-011",
+      "question": "What is the Severity 2 acknowledgement target?",
+      "expected_answer": "Within 60 minutes",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/02_operations_service_targets.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/02_operations_service_targets.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-012",
+      "question": "How many employees attended training in September?",
+      "expected_answer": "41 employees",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "tabular",
+      "source_file": "corpus/docx/02_people_and_training_update.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/02_people_and_training_update.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-013",
+      "question": "What is the domestic day-trip travel cap?",
+      "expected_answer": "\u20b93,500 per employee",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/03_data_governance_rules.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/03_data_governance_rules.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-014",
+      "question": "At what time does the daily summary refresh?",
+      "expected_answer": "06:30 IST",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/images/03_backup_schedule_card.png",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/images/03_backup_schedule_card.png"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-015",
+      "question": "What is the primary classification metric?",
+      "expected_answer": "Macro-F1",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/04_evaluation_benchmark_notes.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/04_evaluation_benchmark_notes.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-016",
+      "question": "What are top_k and top_n in the reranker experiment?",
+      "expected_answer": "top_k=5 and top_n=3",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/04_evaluation_benchmark_notes.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/04_evaluation_benchmark_notes.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-017",
+      "question": "How many OCR page images are in the reference set?",
+      "expected_answer": "12",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "ocr",
+      "source_file": "corpus/pdf/04_evaluation_benchmark_notes.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/04_evaluation_benchmark_notes.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-018",
+      "question": "How many audio clips are in the audio pilot?",
+      "expected_answer": "12",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "audio",
+      "source_file": "corpus/pdf/04_evaluation_benchmark_notes.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/04_evaluation_benchmark_notes.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-019",
+      "question": "How many keyboard-navigation issues were found?",
+      "expected_answer": "7",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "text",
+      "source_file": "corpus/docx/01_product_release_brief.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/01_product_release_brief.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-020",
+      "question": "How many inventory units remained at September month end?",
+      "expected_answer": "812",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "tabular",
+      "source_file": "corpus/pdf/02_operations_service_targets.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/02_operations_service_targets.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-021",
+      "question": "When is the database backup scheduled?",
+      "expected_answer": "Daily at 02:00 IST",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/docx/04_security_and_reliability_standard.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/04_security_and_reliability_standard.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-022",
+      "question": "What is required before a production release?",
+      "expected_answer": "A passing smoke test, an approved change ticket, and a rollback plan",
+      "answerable": true,
+      "category": "multi-hop",
+      "modality": "text",
+      "source_file": "corpus/pdf/03_data_governance_rules.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/03_data_governance_rules.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-023",
+      "question": "What was the September customer satisfaction score?",
+      "expected_answer": "4.4 out of 5",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "tabular",
+      "source_file": "corpus/docx/01_product_release_brief.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/01_product_release_brief.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-024",
+      "question": "When was handbook version 2.3 published?",
+      "expected_answer": "22 September 2026",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/docx/02_people_and_training_update.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/02_people_and_training_update.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-025",
+      "question": "What security control is required for administrator accounts?",
+      "expected_answer": "Multi-factor authentication",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/03_data_governance_rules.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/03_data_governance_rules.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-026",
+      "question": "When is the project status meeting?",
+      "expected_answer": "Every Tuesday at 11:00 IST",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/docx/02_people_and_training_update.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/02_people_and_training_update.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-027",
+      "question": "Which records are flagged by the data quality check?",
+      "expected_answer": "Records missing customer_id or containing an invalid event timestamp",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/docx/03_engineering_sprint_report.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/03_engineering_sprint_report.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-028",
+      "question": "What is the approved pilot budget excluding taxes?",
+      "expected_answer": "\u20b9185,000",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "text",
+      "source_file": "corpus/pdf/01_quarterly_finance_summary.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/01_quarterly_finance_summary.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-029",
+      "question": "How many defects were recorded in Sprint 15?",
+      "expected_answer": "19",
+      "answerable": true,
+      "category": "numerical",
+      "modality": "tabular",
+      "source_file": "corpus/docx/03_engineering_sprint_report.docx",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/docx/03_engineering_sprint_report.docx"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-030",
+      "question": "What is the monthly service availability target?",
+      "expected_answer": "99.5%",
+      "answerable": true,
+      "category": "factual",
+      "modality": "text",
+      "source_file": "corpus/pdf/04_evaluation_benchmark_notes.pdf",
+      "source_locator": "sentence/row/slide containing the matching fact",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [
+        "corpus/pdf/04_evaluation_benchmark_notes.pdf"
+      ],
+      "ground_truth_status": "candidate_reference; validate against actual ingested chunks"
+    },
+    {
+      "question_id": "ADDON-031",
+      "question": "What was Northstar's exact net profit in Q4 2026?",
+      "expected_answer": "",
+      "answerable": false,
+      "category": "unanswerable",
+      "modality": "text",
+      "source_file": "",
+      "source_locator": "",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [],
+      "ground_truth_status": "unanswerable by design; not in corpus"
+    },
+    {
+      "question_id": "ADDON-032",
+      "question": "Which employee received the highest individual salary in September?",
+      "expected_answer": "",
+      "answerable": false,
+      "category": "unanswerable",
+      "modality": "cross-modal",
+      "source_file": "",
+      "source_locator": "",
+      "relevant_document_ids": [],
+      "relevant_chunk_ids": [],
+      "required_citations": [],
+      "ground_truth_status": "unanswerable by design; personal salary data not present"
+    }
+  ]
+}

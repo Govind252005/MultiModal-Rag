@@ -1,0 +1,488 @@
+{
+  "package": "Unified RAG Metrics Testing Package",
+  "version": "1.0",
+  "created_at": "2026-10-01T15:21:03.096271+00:00",
+  "source_file_count": 58,
+  "format_counts": {
+    "DOCX": 8,
+    "image": 19,
+    "PDF": 13,
+    "PPTX": 6,
+    "XLSX": 3,
+    "CSV": 3,
+    "Markdown": 3,
+    "TXT": 3
+  },
+  "notes": [
+    "Existing corpus and add-on corpus are kept in separate folders to support separate/combined experiments.",
+    "Check the existing_corpus for sensitive personal/financial documents before ingesting into any shared or production environment.",
+    "Original corpus contains PDF-derived page images as well as PDFs; avoid ingesting both the source PDF and its extracted page image if that would duplicate content.",
+    "File extension presence does not prove your current ingestion pipeline supports that format."
+  ],
+  "files": [
+    {
+      "path": "corpus/existing_corpus/docx/Govind_Shreelochan_Resume_1.docx",
+      "format": "DOCX",
+      "size_bytes": 11103,
+      "sha256": "09746a90df309828a18eb3365424ae8a37767d68bd121f386d4ce8dd6b3b6a6b",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/docx/Python_Complete_Exam_Notes.docx",
+      "format": "DOCX",
+      "size_bytes": 26489,
+      "sha256": "cb915d1df40729a6edb374592ac9022317ce5242d7f2a9a1af26ed117b1b7dfb",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/docx/VendorFlow_Project_Report.docx",
+      "format": "DOCX",
+      "size_bytes": 37381,
+      "sha256": "c27c84f0834365b0e7e34ef8d9ce6e7d41e5a01e3ffb4d13c35a08ef707b7c8d",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/docx/XPNDAI_Offer_Letter (2).docx",
+      "format": "DOCX",
+      "size_bytes": 116152,
+      "sha256": "bb5e2d03a0e2b487e10eb0083c8cbe59520a3318c6f8186860acd53ab4f01535",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/docx/XPNDAI_Offer_Letter__2___p0_img1.png",
+      "format": "image",
+      "size_bytes": 32827,
+      "sha256": "b8f7267b73359537fe7ddd6015f95937b8fcd51a597da8b9367593b7c518153a",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/images/IMG-20260414-WA0001(1).jpg",
+      "format": "image",
+      "size_bytes": 220566,
+      "sha256": "d266c44b365192f26744b9eaa7e26bcbfa30850a462fa043bd651365acaec7d4",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/images/Screenshot 2026-03-18 220047.png",
+      "format": "image",
+      "size_bytes": 348380,
+      "sha256": "000bac8772c5e984accf05d5e83eab671c27201a16b2c526397c615c6bb9f68b",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/images/Screenshot 2026-03-18 220131.png",
+      "format": "image",
+      "size_bytes": 192495,
+      "sha256": "16cbf321cc9531b4452add28521b0ab2e5dcc257d323b2757d31c9fa3483badf",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/images/Screenshot 2026-03-18 220437.png",
+      "format": "image",
+      "size_bytes": 750274,
+      "sha256": "9e8ac4bf7f746821903195eb00e407ae136438c46f220f5dcf472065d00c4918",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/images/Screenshot 2026-03-18 220925.png",
+      "format": "image",
+      "size_bytes": 256672,
+      "sha256": "e3583c6ad8e1829ed7a1d45c6f43614ff3185e9a889cb1fa0e3b6e689e38efdd",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/images/Screenshot 2026-03-21 232905.png",
+      "format": "image",
+      "size_bytes": 13489,
+      "sha256": "d3f88f815a8531cbe4419b86db124375d1e36c927386831975c8ea7a0c55154c",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/images/Screenshot 2026-03-21 233224.png",
+      "format": "image",
+      "size_bytes": 11052,
+      "sha256": "57b6ab6180249c7d97b8ec923f27aed171742074c214b192a32e249b702f5c3c",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Completion Certificate _ SkillsBuild.pdf",
+      "format": "PDF",
+      "size_bytes": 24413,
+      "sha256": "77470ae67ed1e3676a40345943f0af06c163803943dc59235858302aab7d49a4",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Govind Offer letter.pdf",
+      "format": "PDF",
+      "size_bytes": 203114,
+      "sha256": "72a8d559997a554277ff79353fb379b1b4441073d2575be0ed76a17f0c521b03",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Govind_Offer_letter__p1_img1.png",
+      "format": "image",
+      "size_bytes": 50949,
+      "sha256": "a8195f9d92cdad98e93d78c6bcbae58654f9c1f7b2648f60522cd4b00104b0ac",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Govind_Offer_letter__p1_img2.png",
+      "format": "image",
+      "size_bytes": 215723,
+      "sha256": "c3cb2becf93c829f3f113f3e8258316b0869d39de4ab26fc1dbdacc645cafea6",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Govind_Shreelochan.pdf",
+      "format": "PDF",
+      "size_bytes": 25505,
+      "sha256": "f41f496931d67939f4e209ac05f742bb388c284dfbea1fc322768e2f4f0f5b32",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Govind_Shreelochan_Data_Analyst_Resume.pdf",
+      "format": "PDF",
+      "size_bytes": 56282,
+      "sha256": "1fa5ab49a63b61a097f4535ecefcd34ce00f238978e2b47be421dc0e43c577f4",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Payment Status.pdf",
+      "format": "PDF",
+      "size_bytes": 122110,
+      "sha256": "82f7279b4eb51058d0343b31f81a2022b2cc23f88b7b44011c364c2294f917cc",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Payment_Status__p1_img1.png",
+      "format": "image",
+      "size_bytes": 1649,
+      "sha256": "4a90e710304b6906a72cf5247bce9cfb0b575aa951cc319d1f778a02a687d847",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/SANDESH SHARMA INVOICE(1).pdf",
+      "format": "PDF",
+      "size_bytes": 172466,
+      "sha256": "8bc788c9aeed45460ecf988b74591df323fdbddaed5d44172f71b7b2fba481fb",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/SANDESH_SHARMA_INVOICE_1___p1_img1.png",
+      "format": "image",
+      "size_bytes": 10510,
+      "sha256": "407446cb00f656e5636a015c40ed50edce902570ae49d7872df36e87dd4bf62f",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Salesforce Developer - Consultadd.pdf",
+      "format": "PDF",
+      "size_bytes": 243129,
+      "sha256": "05bf738fecb2515fb6f721bd087d0b63f786ff84e8a1dede5a391b8e347bea4b",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Salesforce_Developer_-_Consultadd__p1_img1.png",
+      "format": "image",
+      "size_bytes": 182051,
+      "sha256": "ffe7fddb354925378cfafbf0a8e0097eb8ee7a3e9c6e35e8803697f948234431",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/Salesforce_Developer_-_Consultadd__p2_img2.png",
+      "format": "image",
+      "size_bytes": 183803,
+      "sha256": "978711c94ea06482cd561a0bef8a0f5be52de8c66df8fdca004fdb66c55a9e1c",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/internship details.pdf",
+      "format": "PDF",
+      "size_bytes": 136904,
+      "sha256": "218cf0c998b504b11d34a77bf000e6460eaee0c15cb9be3ef6a8a41ac2cd4aa1",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/internship_details__p1_img1.png",
+      "format": "image",
+      "size_bytes": 1031846,
+      "sha256": "0254ea2359cfde03e34bd58c3894b7857eeb958e54ad2eab83e1da8f9115869a",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/existing_corpus/pdf/mrag_paper(1).pdf",
+      "format": "PDF",
+      "size_bytes": 297959,
+      "sha256": "ad5778629bea6b9a2077150e04c7a4fac12d312ca5c1f8d4c83dad9a72ffadb5",
+      "corpus_group": "existing_corpus",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/docx/01_product_release_brief.docx",
+      "format": "DOCX",
+      "size_bytes": 36850,
+      "sha256": "01f2a4de2181e62a572a07504f1fc1e4bd3fa274afa4d95a7c1478b8e1f50eb2",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/docx/02_people_and_training_update.docx",
+      "format": "DOCX",
+      "size_bytes": 36809,
+      "sha256": "86a4bf370ad4ea17a33a248488dc823d21b798f482c4199b9260f0e0ecb27275",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/docx/03_engineering_sprint_report.docx",
+      "format": "DOCX",
+      "size_bytes": 36834,
+      "sha256": "ce2f559620ec7e75c56a8797ca5ce32f8252c031d9c007f65604ab1b208a59fe",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/docx/04_security_and_reliability_standard.docx",
+      "format": "DOCX",
+      "size_bytes": 36905,
+      "sha256": "31e91375491aca24153b42fd1775aacca42029748fe73801682096f58d176eb7",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/images/01_support_policy_card.png",
+      "format": "image",
+      "size_bytes": 16640,
+      "sha256": "4d51b91f21591f1335bc2a5dba072d4a4677fdbaf3a2daa5c04c3cb82c9e90bf",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/images/02_release_date_card.png",
+      "format": "image",
+      "size_bytes": 18451,
+      "sha256": "46ca748f77e633f7585429a7243c662b177e5a38f9724900182cb3cddf8d28f0",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/images/03_backup_schedule_card.png",
+      "format": "image",
+      "size_bytes": 20308,
+      "sha256": "54e3dc4ee6a47df4b9f62e077bde3c884714162524a14f8fd4806bfb8277750e",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/images/04_quality_check_card.png",
+      "format": "image",
+      "size_bytes": 21042,
+      "sha256": "d0cb4e5c50d30f33aab5ea06a91170d42952afee78b7d1b3e50a98ce69c4978c",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/pdf/01_quarterly_finance_summary.pdf",
+      "format": "PDF",
+      "size_bytes": 1884,
+      "sha256": "2239b7a62d0275843fcd90ada577eb9202b6a9750175b041a0627d232817443b",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/pdf/02_operations_service_targets.pdf",
+      "format": "PDF",
+      "size_bytes": 1885,
+      "sha256": "8c45c1373ebe3153ce84cd9ab77ba3691e8441c970d8fc8f7d58e8627cb437bc",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/pdf/03_data_governance_rules.pdf",
+      "format": "PDF",
+      "size_bytes": 2080,
+      "sha256": "5b403e2b6a7a5bcbb9d2592623b8482cc32e0f2f9346052918bdb4e628630d9c",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/pdf/04_evaluation_benchmark_notes.pdf",
+      "format": "PDF",
+      "size_bytes": 1930,
+      "sha256": "a9ab59c10405da66f4c0455315a663a1e9b5940e5f61426635495d208403191d",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/presentations/evaluation_review.pptx",
+      "format": "PPTX",
+      "size_bytes": 30955,
+      "sha256": "aeb4775927ce2eb329b9d691b390c5d1f0e856dd05d60059d48fc18343d824d8",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/presentations/finance_review.pptx",
+      "format": "PPTX",
+      "size_bytes": 30925,
+      "sha256": "f19332690e75cefbe799701c6abcbaac5100187a6e3fdb480c01457db85e91c3",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/presentations/product_review.pptx",
+      "format": "PPTX",
+      "size_bytes": 30937,
+      "sha256": "9e02b4b09b87c768f201c125559b25d6034d811fc83995ebc0fdd484cd60b7c7",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/presentations/reliability_review.pptx",
+      "format": "PPTX",
+      "size_bytes": 30943,
+      "sha256": "999685be483388dc6f8a822f23365378667c56a658796587c31d7bfe64f82e91",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/presentations/security_review.pptx",
+      "format": "PPTX",
+      "size_bytes": 30968,
+      "sha256": "84e3607f51690db4ca60306701235733094964becfd8f81f2a74dcbb7f8c91c0",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/presentations/team_review.pptx",
+      "format": "PPTX",
+      "size_bytes": 30922,
+      "sha256": "8d4f3dfd2d5437071f6e21016476ca54c1d19c1fa7418dbb01813d0ab5bc709b",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/tabular/attendance_inventory.xlsx",
+      "format": "XLSX",
+      "size_bytes": 4970,
+      "sha256": "1a25c9ddc35fb97defa45cdbe25194d7ab727ebcd9f126bc24847150cd5a2af3",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/tabular/customer_experience.xlsx",
+      "format": "XLSX",
+      "size_bytes": 4892,
+      "sha256": "75c81069382d83fe016a6569d05bde9d8a651c8e23fa9931316bc6c86be12c85",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/tabular/onboarding.xlsx",
+      "format": "XLSX",
+      "size_bytes": 4883,
+      "sha256": "b72b07da50c1853267c097121a1ee412e17b63aba261ef2f40376c753d3fd0da",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/tabular/quarterly_finance.csv",
+      "format": "CSV",
+      "size_bytes": 109,
+      "sha256": "a0346bd0e8233af5217ec495cfaebc536521de5d3b3c84c7efd38b014a69109a",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/tabular/sprint_defects.csv",
+      "format": "CSV",
+      "size_bytes": 44,
+      "sha256": "900c54e48980e288bf5fae9d3bf675cff9be8c331e6c0c0ca224846a90680aa6",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/tabular/support_tickets.csv",
+      "format": "CSV",
+      "size_bytes": 64,
+      "sha256": "5ee04b2e32e83a47f2916b1c5b0605aa63969763cd73a22e3236a83b2e0c13be",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/text/daily_pipeline.md",
+      "format": "Markdown",
+      "size_bytes": 222,
+      "sha256": "ee6c73e79404586c73cd33395af56c7fa8d04f8bf8d58377dc890b8d0ddea9e6",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/text/data_retention_policy.txt",
+      "format": "TXT",
+      "size_bytes": 236,
+      "sha256": "33b93918a2fe6fadfe30de97b9c40ef8a2a02f7967f83727bd0c8067ddb22a84",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/text/incident_response.md",
+      "format": "Markdown",
+      "size_bytes": 229,
+      "sha256": "84371663c96d22c9e0c589e3892f9e3a57e447300e9c448839d7e8d949d11c77",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/text/meeting_and_availability.md",
+      "format": "Markdown",
+      "size_bytes": 200,
+      "sha256": "a16e1934a5e0495ea48f6c42c303782d6186bc5b292e5871a5c95bae2adc7d65",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/text/release_checklist.txt",
+      "format": "TXT",
+      "size_bytes": 250,
+      "sha256": "bf1b77a6997a300b57bebcc99b2c2d27b4afe62f6b71f7596f44f1266617f372",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    },
+    {
+      "path": "corpus/addon_northstar/text/travel_and_budget.txt",
+      "format": "TXT",
+      "size_bytes": 208,
+      "sha256": "c1304ac0e7e4083f984af5bd30446cfd91caf583681964824145929066ad9062",
+      "corpus_group": "addon_northstar",
+      "recommended_for_ingestion": true
+    }
+  ]
+}

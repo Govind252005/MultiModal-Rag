@@ -1,0 +1,158 @@
+[
+  {
+    "sample_id": "audio-001",
+    "audio_path": "evaluation/corpus/audio/audio_01.wav",
+    "ground_truth_transcript": "The quarterly finance review reports Q one revenue of four hundred twenty thousand rupees.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-002",
+    "audio_path": "evaluation/corpus/audio/audio_02.wav",
+    "ground_truth_transcript": "Customer support resolved one thousand four hundred five tickets in September.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-003",
+    "audio_path": "evaluation/corpus/audio/audio_03.wav",
+    "ground_truth_transcript": "The standard support target is first response within four business hours.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-004",
+    "audio_path": "evaluation/corpus/audio/audio_04.wav",
+    "ground_truth_transcript": "The data retention policy keeps standard support tickets for one hundred eighty days.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-005",
+    "audio_path": "evaluation/corpus/audio/audio_05.wav",
+    "ground_truth_transcript": "The mobile dashboard release date was fifteen September twenty twenty six.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-006",
+    "audio_path": "evaluation/corpus/audio/audio_06.wav",
+    "ground_truth_transcript": "Severity one incidents must be acknowledged within fifteen minutes.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-007",
+    "audio_path": "evaluation/corpus/audio/audio_07.wav",
+    "ground_truth_transcript": "The approved database backup schedule is daily at two AM India time.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-008",
+    "audio_path": "evaluation/corpus/audio/audio_08.wav",
+    "ground_truth_transcript": "The benchmark uses macro F one as the primary classification metric.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-009",
+    "audio_path": "evaluation/corpus/audio/audio_09.wav",
+    "ground_truth_transcript": "The reranker experiment uses top K five and top N three.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-010",
+    "audio_path": "evaluation/corpus/audio/audio_10.wav",
+    "ground_truth_transcript": "The customer satisfaction score was four point four out of five in September.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-011",
+    "audio_path": "evaluation/corpus/audio/audio_11.wav",
+    "ground_truth_transcript": "Administrator accounts require multi factor authentication.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  },
+  {
+    "sample_id": "audio-012",
+    "audio_path": "evaluation/corpus/audio/audio_12.wav",
+    "ground_truth_transcript": "The service availability target is ninety nine point five percent per calendar month.",
+    "condition": "clean",
+    "duration_seconds": 0.0,
+    "language": "en",
+    "verified_by_human": false,
+    "metadata": {
+      "source": "unified_rag_metrics_testing_package",
+      "verification_required": true
+    }
+  }
+]

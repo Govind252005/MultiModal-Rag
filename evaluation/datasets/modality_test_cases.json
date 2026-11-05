@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "cases": [
+    {
+      "case_id": "MOD-TEXT-01",
+      "type": "text-only",
+      "question_id": "ADDON-005",
+      "expected_behavior": "Retrieve support policy text and cite the source."
+    },
+    {
+      "case_id": "MOD-TAB-01",
+      "type": "table/numerical",
+      "question_id": "ADDON-004",
+      "expected_behavior": "Retrieve September row and return exact integer."
+    },
+    {
+      "case_id": "MOD-IMG-01",
+      "type": "image-text",
+      "question_id": "ADDON-009",
+      "expected_behavior": "Retrieve image content only if image ingestion/OCR is supported."
+    },
+    {
+      "case_id": "MOD-AUD-01",
+      "type": "audio",
+      "question_id": "ADDON-017",
+      "expected_behavior": "Audio file is a benchmark asset; ingestion support must be verified separately."
+    },
+    {
+      "case_id": "MOD-CROSS-01",
+      "type": "cross-document",
+      "question_id": "ADDON-021",
+      "expected_behavior": "Answer using the full list of three release prerequisites."
+    },
+    {
+      "case_id": "MOD-UNANS-01",
+      "type": "unanswerable",
+      "question_id": "ADDON-031",
+      "expected_behavior": "Abstain and state that evidence is unavailable."
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+﻿# Groq Provider Configuration
+provider: "groq"
+label: "Groq Cloud LLM"
+model: "openai/gpt-oss-120b"
+api_base: "https://api.groq.com/openai/v1"
+api_key_env: "GROQ_API_KEY"
+timeout_seconds: 60
+max_tokens: 1024
+temperature: 0.1
+

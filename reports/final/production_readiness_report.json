@@ -1,0 +1,29 @@
+{
+  "report": "production_readiness_report",
+  "categories": [
+    {"category": "Security (code-level)", "status": "PARTIAL",
+     "evidence": "Rate limiting, token revocation, CORS allowlist, magic-byte upload validation, path-traversal defense, thread-safety fixes, prompt-injection tests implemented and unit-tested. No dependency/static-analysis scan has run (tools not installed in this dev environment)."},
+    {"category": "Authentication", "status": "PASS",
+     "evidence": "PBKDF2 (200k iterations), 8-char minimum, login/register rate-limit+lockout, per-token revocation - all unit-tested."},
+    {"category": "Authorization", "status": "PARTIAL",
+     "evidence": "Per-user data isolation is tenant-isolation-tested. Role-based access (admin vs user) implemented and unit-tested at the function level; the 3 admin HTTP endpoints have not been exercised through a live request."},
+    {"category": "RAG retrieval", "status": "PARTIAL",
+     "evidence": "Pipeline structurally verified via unit tests and code reading. No live Recall@K/MRR/NDCG numbers exist yet - evaluation/ framework is built and self-test-verified but not run against a real corpus."},
+    {"category": "Citations", "status": "PARTIAL",
+     "evidence": "Citation metadata/structure unchanged and correct. Citation quality metrics implemented and tested at the arithmetic level, never run against real judged data. Confidence-labeling anti-pattern (brief section 19) fixed this pass."},
+    {"category": "Performance", "status": "NOT_RUN",
+     "evidence": "No live Ollama/GPU in this development environment. evaluation/benchmark_ollama.py and evaluation/runner/run_eval.py are built and will produce real numbers on real hardware."},
+    {"category": "Scalability", "status": "NOT_RUN",
+     "evidence": "No load test performed. Concurrency-safety bugs (model-loader race, session-write lost-update) were found and fixed with passing tests this pass; throughput/scalability is a separate, unmeasured claim."},
+    {"category": "Reliability", "status": "PARTIAL",
+     "evidence": "Circuit breaker, classified failover, exponential backoff+jitter, health/readiness endpoints implemented and tested. No sustained-load or crash-recovery test run."},
+    {"category": "Deployment", "status": "PARTIAL",
+     "evidence": "Local + Docker Compose documented and internally consistent; not actually built/run (no Docker daemon in this environment). Kubernetes manifests written, never applied to a cluster."},
+    {"category": "Documentation", "status": "PASS",
+     "evidence": "Full docs/ set present: architecture, security, threat-model, evaluation, metrics, deployment, performance, api, troubleshooting, operations, development, data-retention, release-checklist."}
+  ],
+  "final_security_statement": "No known critical or high-severity vulnerability was identified in the code paths touched by this engagement, by the automated unit tests and manual review performed, as of this writing. This is not a claim of zero vulnerabilities: no dependency scanner, static analyzer, or penetration test has actually run.",
+  "final_recommendation": "READY_WITH_CONDITIONS_LOCAL_NOT_READY_PUBLIC_PRODUCTION",
+  "recommendation_detail": "Ready with conditions for continued local/desktop use, with every security and performance fix from this engagement in place and tested at the unit level. Not ready for public-internet production deployment until real-hardware verification (see REMAINING_WORK.md Bucket A) is complete.",
+  "see_also": ["COMPLETION_MATRIX.md", "CHANGES.md", "REMAINING_WORK.md", "docs/security.md", "docs/release-checklist.md"]
+}

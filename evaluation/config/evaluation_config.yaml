@@ -1,0 +1,50 @@
+# ============================================================
+# Modular RAG Evaluation System Configuration
+# ============================================================
+
+evaluation:
+  session_id: "real-eval-v1"
+  base_url: "http://localhost:8000"
+  timeout_seconds: 60
+  top_k: 5
+  eval_k_list: [1, 3, 5, 10]
+  seed: 42
+  
+datasets:
+  primary: "evaluation/datasets/rag_test_dataset.json"
+  ground_truth_dir: "evaluation/datasets/ground_truth"
+  audio_benchmark: "evaluation/datasets/audio/audio_eval_benchmark.json"
+  ocr_benchmark: "evaluation/datasets/ocr/ocr_eval_benchmark.json"
+  modality_benchmark: "evaluation/datasets/modality/modality_eval_benchmark.json"
+  ablation_benchmark: "evaluation/datasets/ablation/ablation_benchmark.json"
+
+reports:
+  root_dir: "reports/evaluation"
+  save_raw_results: true
+  save_csv: true
+  save_json: true
+  save_markdown: true
+  save_text: true
+  save_graphs: true
+  save_paper_tables: true
+
+judges:
+  answer_correctness:
+    method: "hybrid"  # "hybrid" (deterministic token-F1 + embedding semantic similarity + LLM)
+    semantic_threshold: 0.70
+    token_f1_threshold: 0.50
+  faithfulness:
+    method: "claim_grounding"
+    grounding_threshold: 0.65
+  citation:
+    strict_source_match: true
+
+experiments:
+  retrieval: true
+  generation: true
+  citation: true
+  performance: true
+  modality: true
+  ocr: true
+  audio: true
+  ablation: true

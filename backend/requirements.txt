@@ -1,0 +1,71 @@
+# ============================================================
+#  Multimodal Offline RAG — Backend dependencies
+#  Python 3.10+   |   Windows / Linux / macOS
+# ============================================================
+# NOTE: Install PyTorch SEPARATELY first (see SETUP_GUIDE.md) so
+# you get the correct CUDA build for your 4GB NVIDIA GPU:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# Then:  pip install -r requirements.txt
+# ------------------------------------------------------------
+
+# --- Web / API ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+# google-genai needs pydantic>=2.12.5, so we relax this pin (FastAPI supports it).
+pydantic>=2.12.5
+pydantic-settings>=2.7.1
+
+# --- Vector DB (embedded, no server needed) ---
+chromadb
+
+# --- Embeddings (text + CLIP cross-modal, one library) ---
+sentence-transformers==3.3.1
+
+# --- Image captioning (BLIP) + model hub ---
+transformers==4.47.1
+Pillow==11.0.0
+
+# --- OCR (image / scanned-pdf text) ---
+# PaddleOCR = deep-learning OCR (accurate, multilingual, GPU). Pulls in
+# opencv-python-headless + scikit-image automatically. First use downloads
+# small detection/recognition models (then fully offline).
+paddleocr==3.7.0
+pytesseract==0.3.13
+pdf2image==1.17.0
+
+# --- Speech-to-text (offline, GPU-friendly) ---
+faster-whisper==1.1.0
+
+# --- Document parsing ---
+PyMuPDF==1.25.1
+python-docx==1.1.2
+
+# --- Local LLM client (talks to Ollama) ---
+# NOTE: 0.5.x is required for httpx>=0.28 compatibility (google-genai pulls in httpx 0.28).
+ollama>=0.5.1
+
+# --- Cloud LLM providers (optional; only needed if you use that provider) ---
+google-genai>=0.3.0
+openai>=1.0.0
+anthropic>=0.30.0
+groq>=0.9.0
+
+# --- Encrypted per-user API key storage (Fernet) ---
+cryptography>=42.0.0
+
+# --- Utils ---
+numpy==1.26.4
+python-dotenv==1.0.1
+
+# --- Ranking ---
+# rank-bm25 removed: BM25 is now served by the persistent SQLite FTS5
+# index (retrieval/lexical_index.py) instead of an in-memory BM25Okapi
+# rebuilt from the corpus on every query (see AUDIT_REPORT.md P1-1).
+# Confirmed no remaining import anywhere in backend/ before removing.
+
+#--Redis for caching and session management--
+redis==5.0.8
+
+# --- Resource utilization monitoring (brief §74) ---
+psutil==6.1.0
