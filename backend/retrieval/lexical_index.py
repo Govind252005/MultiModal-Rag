@@ -138,16 +138,24 @@ def delete_by_ids(ids: List[str]) -> int:
         con.close()
 
 
-def delete_by_file(file: str, session_id: Optional[str] = None) -> int:
+def delete_by_file(
+    file: str,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
+) -> int:
     con = _connect()
     try:
+        clauses = ["file = ?"]
+        params: List[Any] = [file]
         if session_id:
-            cur = con.execute(
-                "DELETE FROM lexical_index WHERE file = ? AND session_id = ?",
-                (file, session_id),
-            )
-        else:
-            cur = con.execute("DELETE FROM lexical_index WHERE file = ?", (file,))
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        sql = f"DELETE FROM lexical_index WHERE {' AND '.join(clauses)}"
+        cur = con.execute(sql, tuple(params))
         con.commit()
         return cur.rowcount or 0
     finally:

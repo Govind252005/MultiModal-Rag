@@ -335,6 +335,7 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
                     "email": u["email"],
                     "role": u.get("role", "user"),
                     "org_id": u.get("org_id", "default_org"),
+                    "status": u.get("status", "active"),
                 }
     return None
 
@@ -349,6 +350,7 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
                 "email": u["email"],
                 "role": u.get("role", "user"),
                 "org_id": u.get("org_id", "default_org"),
+                "status": u.get("status", "active"),
             }
     return None
 

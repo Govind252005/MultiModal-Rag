@@ -117,6 +117,7 @@ def query_audit_logs(
     return {
         "total": total,
         "events": paginated,
+        "logs": paginated,
         "limit": limit,
         "offset": offset,
     }

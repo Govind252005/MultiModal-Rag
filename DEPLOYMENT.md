@@ -1,94 +1,107 @@
-# Deployment & Sharing Guide
+# Enterprise Production Deployment Guide
 
-Two ways to share this so another person can run it **locally and offline** on
-their own machine. Pick whichever suits them.
+## 1. System Requirements
 
----
+### Hardware Requirements
+- **Minimum**: 4 CPU cores, 16 GB RAM, 20 GB SSD storage.
+- **Recommended (Local GPU Acceleration)**: 8+ CPU cores, 32 GB RAM, NVIDIA RTX 3060 / 4060 or better with 8 GB+ VRAM (CUDA 12.x+), 50 GB NVMe SSD.
 
-## Option A — Docker (one command, most portable)
-
-Best when the other person just wants it to work without installing Python,
-Node, Tesseract, etc. They only need **Docker Desktop**.
-
-```bash
-# 1. Copy/clone the whole project folder to their machine
-# 2. From the project root:
-docker compose up -d --build
-
-# 3. Pull the LLM once (needs internet ONCE, then fully offline):
-docker compose exec ollama ollama pull qwen3:8b
-```
-
-Open **http://localhost:8080**.
-
-- Everything (Ollama + backend + frontend) runs in containers.
-- Models, the vector index, and uploads persist in Docker volumes, so it stays
-  offline and keeps data across restarts.
-- **GPU (optional):** install the NVIDIA Container Toolkit and uncomment the
-  `deploy.resources` block under the `ollama` service in `docker-compose.yml`.
-  Without it, it runs on CPU (slower but works).
-
-Stop / start:
-```bash
-docker compose down          # stop
-docker compose up -d         # start again (no rebuild)
-```
+### Software Prerequisites
+- **Operating System**: Windows 10/11 64-bit, Ubuntu 22.04/24.04 LTS, or macOS 13+ (Apple Silicon).
+- **Python**: 3.10 to 3.12 64-bit.
+- **Node.js**: v18.x or v20.x LTS + npm.
+- **Ollama**: v0.3.0+ for serving local models (`qwen3:4b` or `qwen2.5:7b`).
 
 ---
 
-## Option B — Native scripts (best performance, uses their GPU)
+## 2. Local Ollama Model Setup
 
-Best when the person is technical / wants full GPU speed. Requires the one-time
-setup from **SETUP_GUIDE.md** (Python, Node, Ollama, Tesseract, PyTorch-CUDA).
+1. Install Ollama from [ollama.com](https://ollama.com).
+2. Start the Ollama background service:
+   ```bash
+   ollama serve
+   ```
+3. Pull the recommended local models:
+   ```bash
+   ollama pull qwen3:4b
+   ```
 
-**Windows**
-```bat
-scripts\pull-models-windows.bat     :: one-time: pull the LLM
-scripts\run-windows.bat             :: build frontend + serve everything on :8000
-```
-Open **http://localhost:8000**.
+---
 
-For development with hot-reload instead:
-```bat
-scripts\dev-windows.bat             :: backend :8000 + Vite :5173
-```
+## 3. Backend Setup & Configuration
 
-**macOS / Linux**
+1. Set up a virtual environment and install dependencies:
+   ```bash
+   python -m venv backend/venv
+   # Windows:
+   .\backend\venv\Scripts\activate
+   # Linux/macOS:
+   source backend/venv/bin/activate
+
+   pip install -r backend/requirements.txt
+   ```
+2. Configure environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+   Key environment variables:
+   - `OLLAMA_HOST=http://localhost:11434`
+   - `LLM_MODEL=qwen3:4b`
+   - `TEXT_EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
+   - `ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
+
+---
+
+## 4. Frontend Production Build
+
+1. Install dependencies:
+   ```bash
+   cd frontend
+   npm install
+   ```
+2. Build the optimized static bundle:
+   ```bash
+   npm run build
+   ```
+   The production assets are compiled into `frontend/dist/`.
+
+---
+
+## 5. Running the Application
+
+### Native Single-Process Mode (FastAPI serves built frontend)
 ```bash
-./scripts/pull-models-unix.sh
+# Windows
+.\scripts\run-windows.bat
+
+# Linux/macOS
 ./scripts/run-unix.sh
 ```
+Open **http://localhost:8000** in your browser.
 
-In production mode the FastAPI backend serves the built React app itself
-(from `frontend/dist`), so there's a single URL and a single process.
-
----
-
-## Sharing on the same Wi-Fi (LAN) — test on your phone
-
-Both options bind to `0.0.0.0`, so other devices on the same network can reach
-your machine:
-
-1. Find your machine's IP:
-   - Windows: `ipconfig` → "IPv4 Address" (e.g. `192.168.1.42`)
-   - macOS/Linux: `hostname -I` or `ifconfig`
-2. On the phone/other laptop, open:
-   - Docker:  `http://192.168.1.42:8080`
-   - Native:  `http://192.168.1.42:8000`
-3. Allow the port through Windows Firewall the first time if prompted.
-
-The UI is mobile-responsive, so it works on a phone screen.
+### Development Mode (Hot-Reload)
+```bash
+# Windows
+.\scripts\dev-windows.bat
+```
+Backend runs on **http://localhost:8000**, frontend Vite dev server runs on **http://localhost:5173**.
 
 ---
 
-## What "offline" means here
+## 6. Enterprise Backup & Disaster Recovery
 
-After the **first** run downloads the models (LLM via Ollama, plus the
-embedding / CLIP / BLIP / Whisper models via HuggingFace), you can disconnect
-from the internet entirely and everything keeps working — ingestion, search,
-transcription, and answering are all local.
+The system includes automated backup and restore capabilities:
+```python
+from backend.backup_manager import create_backup, restore_backup
+from pathlib import Path
 
-To pre-bundle models for a truly air-gapped machine, copy these folders from a
-machine that has already run it once:
-- Ollama models:  `~/.ollama` (or the `ollama_models` Docker volume)
-- HF model cache: `~/.cache/huggingface` (or the `hf_cache` Docker volume)
+# Create an encrypted snapshot
+archive = create_backup(Path("backups/snapshot_20261106.zip"))
+
+# Restore to destination
+restore_backup(
+    archive_path=Path("backups/snapshot_20261106.zip"),
+    target_data_dir=Path("data/"),
+    target_store_dir=Path("storage/")
+)
+```

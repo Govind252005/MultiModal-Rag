@@ -194,10 +194,15 @@ def list_files(session_id: Optional[str] = None,
     return sorted(summary.values(), key=lambda x: x["file"])
 
 
-def delete_file(filename: str, session_id: Optional[str] = None) -> int:
-    """Remove a file's chunks. Scope to a session if given."""
+def delete_file(
+    filename: str,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
+) -> int:
+    """Remove a file's chunks. Scope to a session, user, and/or org if given."""
     removed = 0
-    where = build_where(session_id=session_id, files=[filename])
+    where = build_where(session_id=session_id, files=[filename], user_id=user_id, org_id=org_id)
     for col in (_text_col, _image_col):
         got = col.get(where=where, include=[])
         ids = got.get("ids", [])
@@ -205,7 +210,7 @@ def delete_file(filename: str, session_id: Optional[str] = None) -> int:
             col.delete(ids=ids)
             removed += len(ids)
     try:
-        lexical_index.delete_by_file(filename, session_id=session_id)
+        lexical_index.delete_by_file(filename, session_id=session_id, user_id=user_id, org_id=org_id)
     except Exception as exc:
         print(f"[vector_store] lexical index delete_by_file failed: {exc}")
     return removed

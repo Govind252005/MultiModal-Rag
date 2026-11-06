@@ -241,6 +241,8 @@ def get_user(authorization: Optional[str] = Header(None)) -> dict:
     user = auth.get_user_by_id(uid)
     if not user:
         raise HTTPException(401, "Account not found.")
+    if user.get("status") == "disabled":
+        raise HTTPException(403, "Account is disabled. Please contact your enterprise administrator.")
     return user
 
 
@@ -1096,6 +1098,17 @@ async def upload_documents(
                 outcome="success",
                 details={"chunks": res.get("chunks"), "collection_id": collection_id, "size": path.stat().st_size if path.exists() else 0},
             )
+        except HTTPException as exc:
+            audit_logger.record_audit(
+                action="document_upload_failed",
+                user_id=user["id"],
+                email=user.get("email", ""),
+                org_id=org_id,
+                resource=up.filename,
+                outcome="failed",
+                details={"error": exc.detail},
+            )
+            raise exc
         except Exception as exc:
             results.append({"file": up.filename, "error": str(exc)})
             audit_logger.record_audit(
@@ -1120,22 +1133,30 @@ def delete_document(
     org_id = user.get("org_id", "default_org")
     clean_name = Path(filename).name
 
-    # 1. Remove chunks from ChromaDB and SQLite FTS5
-    removed = vector_store.delete_file(clean_name)
+    user_sessions = session_store.list_sessions(owner_id=user["id"], org_id=org_id)
+    owned_session_files = []
+    for s in user_sessions:
+        p = _safe_join(_session_dir(s["id"]), clean_name)
+        if p.exists() and p.is_file():
+            owned_session_files.append((s["id"], p))
+
+    all_user_files = vector_store.list_files(user_id=user["id"], org_id=org_id)
+    if clean_name not in all_user_files and not owned_session_files:
+        raise HTTPException(404, f"Document '{clean_name}' not found or access denied.")
+
+    # 1. Remove chunks from ChromaDB and SQLite FTS5 scoped to user and org
+    removed = vector_store.delete_file(clean_name, user_id=user["id"], org_id=org_id)
 
     # 2. Delete physical files from all user's sessions
-    user_sessions = session_store.list_sessions(owner_id=user["id"], org_id=org_id)
     deleted_files = 0
-    for s in user_sessions:
-        p = _session_dir(s["id"]) / clean_name
-        if p.exists():
-            try:
-                p.unlink()
-                deleted_files += 1
-            except Exception:
-                pass
-        remaining = vector_store.list_files(session_id=s["id"], user_id=user["id"], org_id=org_id)
-        session_store.set_files(s["id"], remaining)
+    for sid, p in owned_session_files:
+        try:
+            p.unlink(missing_ok=True)
+            deleted_files += 1
+        except Exception:
+            pass
+        remaining = vector_store.list_files(session_id=sid, user_id=user["id"], org_id=org_id)
+        session_store.set_files(sid, remaining)
 
     # 3. Remove from any collections
     cols = collections_store.list_collections(owner_id=user["id"], org_id=org_id)
@@ -1266,7 +1287,10 @@ def get_collection_endpoint(col_id: str, user: dict = Depends(get_user)):
 @app.patch("/api/collections/{col_id}")
 def update_collection_endpoint(col_id: str, req: UpdateCollectionRequest, user: dict = Depends(get_user)):
     org_id = user.get("org_id", "default_org")
-    c = collections_store.update_collection(col_id, name=req.name, description=req.description, org_id=org_id)
+    try:
+        c = collections_store.update_collection(col_id, name=req.name, description=req.description, org_id=org_id)
+    except (PermissionError, ValueError):
+        raise HTTPException(404, "Collection not found.")
     if not c:
         raise HTTPException(404, "Collection not found.")
     audit_logger.record_audit(
@@ -1284,10 +1308,13 @@ def update_collection_endpoint(col_id: str, req: UpdateCollectionRequest, user: 
 @app.delete("/api/collections/{col_id}")
 def delete_collection_endpoint(col_id: str, user: dict = Depends(get_user)):
     org_id = user.get("org_id", "default_org")
-    col = collections_store.get_collection(col_id, org_id=org_id)
-    if not col:
+    try:
+        col = collections_store.get_collection(col_id, org_id=org_id)
+        if not col:
+            raise HTTPException(404, "Collection not found.")
+        collections_store.delete_collection(col_id, org_id=org_id)
+    except (PermissionError, ValueError):
         raise HTTPException(404, "Collection not found.")
-    collections_store.delete_collection(col_id, org_id=org_id)
     audit_logger.record_audit(
         action="collection_deleted",
         user_id=user["id"],
