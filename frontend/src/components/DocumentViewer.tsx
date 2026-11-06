@@ -47,6 +47,7 @@ export default function DocumentViewer({
   const [viewMode, setViewMode] = useState<'interactive' | 'binary'>('interactive')
   const [searchQuery, setSearchQuery] = useState('')
   const [fullWidth, setFullWidth] = useState(false)
+  const [mobileTab, setMobileTab] = useState<'document' | 'annotations'>('document')
 
   const textContainerRef = useRef<HTMLDivElement>(null)
   const activeHighlightRef = useRef<HTMLElement | null>(null)
@@ -427,10 +428,47 @@ export default function DocumentViewer({
         </div>
       </div>
 
+      {/* Mobile Sub-Navigation Bar (lg:hidden) */}
+      <div className="flex lg:hidden items-center border-b border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-850 p-2 gap-2 shrink-0">
+        <button
+          type="button"
+          data-testid="mobile-tab-document"
+          onClick={() => setMobileTab('document')}
+          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold text-center transition flex items-center justify-center gap-1.5 ${
+            mobileTab === 'document'
+              ? 'bg-white dark:bg-surface-800 text-brand-600 dark:text-brand-300 shadow-2xs border border-surface-200 dark:border-surface-700'
+              : 'text-surface-600 dark:text-surface-400 hover:text-surface-900'
+          }`}
+        >
+          <FileText className="h-3.5 w-3.5" />
+          <span>Document View</span>
+        </button>
+        <button
+          type="button"
+          data-testid="mobile-tab-annotations"
+          onClick={() => setMobileTab('annotations')}
+          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold text-center transition flex items-center justify-center gap-1.5 ${
+            mobileTab === 'annotations'
+              ? 'bg-white dark:bg-surface-800 text-brand-600 dark:text-brand-300 shadow-2xs border border-surface-200 dark:border-surface-700'
+              : 'text-surface-600 dark:text-surface-400 hover:text-surface-900'
+          }`}
+        >
+          <span>Annotations & Evidence</span>
+          <span className="rounded-full bg-brand-100 dark:bg-brand-950 px-1.5 py-0.2 text-[10px] font-mono font-bold text-brand-700 dark:text-brand-300">
+            {docCitations.length}
+          </span>
+        </button>
+      </div>
+
       {/* 2. Main Dual-Pane Body: Document Viewer (Left) + Annotations Sidebar (Right) */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Document Display Area */}
-        <div className="flex-1 flex flex-col overflow-y-auto p-4 sm:p-6 bg-surface-100/60 dark:bg-surface-950 scroll-thin">
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Document Display Area: Full width on mobile when tab === 'document', always visible on lg */}
+        <div
+          data-testid="document-content-surface"
+          className={`flex-1 flex flex-col overflow-y-auto p-3 sm:p-6 bg-surface-100/60 dark:bg-surface-950 scroll-thin ${
+            mobileTab === 'document' ? 'flex w-full' : 'hidden lg:flex'
+          }`}
+        >
           {loading ? (
             <div className="flex flex-col items-center justify-center flex-1 py-16 text-surface-400">
               <Loader2 className="h-8 w-8 animate-spin text-brand-600 mb-3" />
@@ -555,7 +593,7 @@ export default function DocumentViewer({
                 /* Interactive Evidence Text Viewer with Highlights */
                 <div
                   ref={textContainerRef}
-                  className="rounded-2xl border border-surface-200 bg-white p-6 sm:p-8 shadow-sm dark:border-surface-800 dark:bg-surface-900 font-sans text-sm leading-relaxed"
+                  className="rounded-2xl border border-surface-200 bg-white p-4 sm:p-8 shadow-sm dark:border-surface-800 dark:bg-surface-900 font-sans text-sm leading-relaxed break-words"
                 >
                   {renderedTextWithHighlights}
                 </div>
@@ -564,8 +602,29 @@ export default function DocumentViewer({
           )}
         </div>
 
-        {/* 3. Evidence & Annotations Sidebar (Matching the 3rd user reference image!) */}
-        <div className="w-80 border-l border-surface-200 bg-white dark:border-surface-800 dark:bg-surface-900 flex flex-col shrink-0">
+        {/* 3. Evidence & Annotations Sidebar: full width on mobile when tab === 'annotations', fixed w-80 on lg */}
+        <div
+          data-testid="annotations-surface"
+          className={`border-l border-surface-200 bg-white dark:border-surface-800 dark:bg-surface-900 flex flex-col shrink-0 ${
+            mobileTab === 'annotations' ? 'flex w-full' : 'hidden lg:flex lg:w-80'
+          }`}
+        >
+          {/* Mobile Back-to-Document Quick Action */}
+          <div className="lg:hidden p-2.5 bg-brand-50/70 dark:bg-brand-950/40 border-b border-brand-100 dark:border-brand-900 flex items-center justify-between">
+            <button
+              type="button"
+              data-testid="return-to-document-btn"
+              onClick={() => setMobileTab('document')}
+              className="flex items-center gap-1.5 text-xs font-semibold text-brand-700 dark:text-brand-300 hover:underline"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              <span>&larr; Return to Document View</span>
+            </button>
+            <span className="text-[11px] text-brand-600 dark:text-brand-400">
+              Tap card to view page
+            </span>
+          </div>
+
           <div className="p-3 border-b border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-850">
             <h4 className="font-semibold text-xs text-surface-700 dark:text-surface-200 uppercase tracking-wider mb-2">
               Annotations & Evidence ({docCitations.length})
@@ -602,6 +661,7 @@ export default function DocumentViewer({
                       if (c.page != null && c.page > 0) {
                         setCurrentPage(c.page)
                       }
+                      setMobileTab('document')
                     }}
                     className={`cursor-pointer rounded-xl border p-3 transition-all ${
                       isSelected

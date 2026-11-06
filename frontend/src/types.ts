@@ -9,6 +9,7 @@ export interface Citation {
   index: number
   id: string
   file: string
+  session_id?: string
   modality: Modality
   source_type: string
   page: number | null

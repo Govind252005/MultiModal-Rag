@@ -320,11 +320,40 @@ test.describe('Stage 4 Screenshots Capture', () => {
       })
     }
 
-    // 8. Mobile / responsive viewer
+    // 8. Mobile Document View (390px)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.waitForTimeout(600)
+    // Make sure we are on document tab
+    const mobileDocTab = page.locator('[data-testid="mobile-tab-document"]')
+    if (await mobileDocTab.isVisible()) {
+      await mobileDocTab.click()
+      await page.waitForTimeout(400)
+    }
+    await page.screenshot({
+      path: path.join(ARTIFACT_DIR, 'screenshot_stage4_mobile_document_390px.png'),
+    })
     await page.screenshot({
       path: path.join(ARTIFACT_DIR, 'screenshot_stage4_mobile_responsive_viewer.png'),
+    })
+
+    // 9. Mobile Annotations & Evidence View (390px)
+    const mobileAnnTab = page.locator('[data-testid="mobile-tab-annotations"]')
+    if (await mobileAnnTab.isVisible()) {
+      await mobileAnnTab.click()
+      await page.waitForTimeout(400)
+    }
+    await page.screenshot({
+      path: path.join(ARTIFACT_DIR, 'screenshot_stage4_mobile_annotation_390px.png'),
+    })
+
+    // 10. Tablet View (768px)
+    await page.setViewportSize({ width: 768, height: 1024 })
+    if (await mobileDocTab.isVisible()) {
+      await mobileDocTab.click()
+      await page.waitForTimeout(400)
+    }
+    await page.screenshot({
+      path: path.join(ARTIFACT_DIR, 'screenshot_stage4_tablet_768px.png'),
     })
   })
 })

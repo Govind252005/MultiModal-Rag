@@ -10,6 +10,7 @@ import {
   X,
   Loader2,
   StopCircle,
+  ShieldCheck,
 } from 'lucide-react'
 import type { LibraryFile, Scope } from '../types'
 import ScopePanel from './ScopePanel'
@@ -360,12 +361,20 @@ export default function Composer({
                   <p className="truncate font-medium text-surface-800 dark:text-surface-200">
                     {att.file.name}
                   </p>
-                  <p className="text-[10px] text-surface-400">
-                    {formatSize(att.file.size)} &middot; {att.type}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[10px] text-surface-400">
+                      {formatSize(att.file.size)} &middot; {att.type}
+                    </p>
+                    {att.type === 'audio' && (
+                      <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.2 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" title="Audio is transcribed locally via on-premise Whisper">
+                        <ShieldCheck className="h-2.5 w-2.5" />
+                        100% Offline Whisper
+                      </span>
+                    )}
+                  </div>
                   {att.transcribing && (
                     <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
-                      <Loader2 className="h-2.5 w-2.5 animate-spin" /> Transcribing speech...
+                      <Loader2 className="h-2.5 w-2.5 animate-spin" /> Transcribing speech locally...
                     </span>
                   )}
                   {att.transcript && (
@@ -403,20 +412,29 @@ export default function Composer({
 
         {/* Live Audio Recording Status Banner */}
         {recording && (
-          <div className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200 animate-pulse">
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-600" />
-              <span className="font-semibold">Recording Voice Input...</span>
-              <span className="font-mono font-medium">({recordingDuration}s)</span>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-600 animate-ping" />
+                <span className="font-semibold">Recording Voice Input...</span>
+                <span className="font-mono font-medium">({recordingDuration}s)</span>
+              </div>
+              <button
+                type="button"
+                onClick={stopRecording}
+                className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1 text-xs font-semibold text-white hover:bg-rose-700 shadow-xs"
+              >
+                <StopCircle className="h-3.5 w-3.5" />
+                <span>Done Recording</span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={stopRecording}
-              className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1 text-xs font-semibold text-white hover:bg-rose-700"
-            >
-              <StopCircle className="h-3.5 w-3.5" />
-              <span>Done Recording</span>
-            </button>
+            {/* Speech Recognition & Offline Privacy Disclosure */}
+            <div className="flex items-start gap-1.5 text-[11px] text-rose-900 dark:text-rose-300 border-t border-rose-200/80 dark:border-rose-900/60 pt-2 leading-relaxed">
+              <ShieldCheck className="h-3.5 w-3.5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+              <span>
+                <strong>Speech Privacy:</strong> Live dictation streams via browser Web Speech API. Stopping recording generates a local audio file transcribed 100% on-premises via local Whisper without third-party network egress.
+              </span>
+            </div>
           </div>
         )}
 

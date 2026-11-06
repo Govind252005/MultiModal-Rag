@@ -247,7 +247,7 @@ test.describe('Stage 4: Enterprise Evidence & Document Viewer', () => {
     await expect(highlight).toContainText('reasonable and proper care and skill were not exercised')
 
     // Verify annotations sidebar contains multiple citations
-    await expect(viewer.getByText(/Annotations & Evidence/i)).toBeVisible()
+    await expect(viewer.getByRole('heading', { name: /Annotations & Evidence/i })).toBeVisible()
   })
 
   test('clicking citation [3] for DOCX format displays safe text-level evidence fallback notice', async ({ page }) => {
@@ -322,5 +322,51 @@ test.describe('Stage 4: Enterprise Evidence & Document Viewer', () => {
 
     // Chat remains completely intact
     await expect(page.getByText(/In the landmark case of Rylands v Fletcher/i)).toBeVisible()
+  })
+
+  test('mobile viewport (390px) switches cleanly between Document and Annotations without squeezing text', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/')
+
+    const sessionCard = page.locator('text=Rylands v Fletcher Liability Analysis').first()
+    await expect(sessionCard).toBeVisible({ timeout: 10000 })
+    await sessionCard.click()
+
+    // Open citation [2]
+    const citation2 = page.locator('button[title*="source [2]"]').first()
+    await citation2.click()
+
+    const viewer = page.locator('[data-testid="evidence-document-viewer"]')
+    await expect(viewer).toBeVisible()
+
+    // On mobile, the mobile tab bar is visible
+    const docTab = page.locator('[data-testid="mobile-tab-document"]')
+    const annTab = page.locator('[data-testid="mobile-tab-annotations"]')
+    await expect(docTab).toBeVisible()
+    await expect(annTab).toBeVisible()
+
+    // Document surface is visible and full width; sidebar is hidden
+    const docSurface = page.locator('[data-testid="document-content-surface"]')
+    const annSurface = page.locator('[data-testid="annotations-surface"]')
+    await expect(docSurface).toBeVisible()
+    await expect(annSurface).toBeHidden()
+
+    // Switch to Annotations tab
+    await annTab.click()
+    await expect(annSurface).toBeVisible()
+    await expect(docSurface).toBeHidden()
+
+    // In annotations view, return button is visible
+    const returnBtn = page.locator('[data-testid="return-to-document-btn"]')
+    await expect(returnBtn).toBeVisible()
+
+    // Clicking an annotation card preserves selection and returns to Document view
+    const annCard1 = page.locator('[data-testid="annotation-card-1"]').first()
+    await annCard1.click()
+
+    // Document surface is restored to view and displays Page 1
+    await expect(docSurface).toBeVisible()
+    await expect(annSurface).toBeHidden()
+    await expect(viewer.getByText('Page 1 of 11')).toBeVisible()
   })
 })
