@@ -1,21 +1,34 @@
-import { useRef, useState } from 'react'
-import { Send, Mic, Square, Image as ImageIcon, AudioLines, Loader2 } from 'lucide-react'
+import React, { useRef, useState, useEffect } from 'react'
+import {
+  Send,
+  Square,
+  Paperclip,
+  Image as ImageIcon,
+  Mic,
+  AudioLines,
+  FileText,
+  X,
+  Loader2,
+  StopCircle,
+} from 'lucide-react'
 import type { LibraryFile, Scope } from '../types'
 import ScopePanel from './ScopePanel'
 
-/**
- * Bottom composer: text input + Send, a search-scope selector, top-k, a mic
- * (record -> transcribe -> auto submit), and image/audio query buttons.
- * Recording is local; transcription is delegated to the parent via
- * `transcribeBlob` so session handling stays in App.
- */
-export default function Composer({
-  onSubmitText, onImageQuery, onAudioQuery, transcribeBlob, onError, busy,
-  scope, setScope, files, topK, setTopK,
-}: {
+export interface StagedAttachment {
+  id: string
+  file: File
+  type: 'image' | 'audio' | 'document'
+  previewUrl?: string
+  transcript?: string
+  transcribing?: boolean
+}
+
+export interface ComposerProps {
   onSubmitText: (text: string) => void
-  onImageQuery: (file: File) => void
-  onAudioQuery: (file: File) => void
+  onImageQuery: (file: File, query?: string) => void
+  onAudioQuery: (file: File, query?: string) => void
+  onIngestAndQuery?: (files: File[], query: string) => Promise<void>
+  onStopGeneration?: () => void
   transcribeBlob: (blob: Blob) => Promise<string>
   onError: (msg: string) => void
   busy: boolean
@@ -24,37 +37,146 @@ export default function Composer({
   files: LibraryFile[]
   topK: number
   setTopK: (n: number) => void
-}) {
-  const [input, setInput] = useState('')
-  const [recording, setRecording] = useState(false)
-  const [transcribing, setTranscribing] = useState(false)
+}
 
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const streamRef = useRef<MediaStream | null>(null)
+const SUPPORTED_DOCS = '.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.txt,.csv,.md,.json,.log'
+const SUPPORTED_IMAGES = 'image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp'
+const SUPPORTED_AUDIO = 'audio/*,.mp3,.wav,.m4a,.flac,.ogg,.webm'
+
+export default function Composer({
+  onSubmitText,
+  onImageQuery,
+  onAudioQuery,
+  onIngestAndQuery,
+  onStopGeneration,
+  transcribeBlob,
+  onError,
+  busy,
+  scope,
+  setScope,
+  files,
+  topK,
+  setTopK,
+}: ComposerProps) {
+  const [input, setInput] = useState('')
+  const [stagedFiles, setStagedFiles] = useState<StagedAttachment[]>([])
+  const [recording, setRecording] = useState(false)
+  const [recordingDuration, setRecordingDuration] = useState(0)
+  const [dragOver, setDragOver] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const audioInputRef = useRef<HTMLInputElement>(null)
 
-  function submit() {
-    const q = input.trim()
-    if (!q || busy) return
-    onSubmitText(q)
-    setInput('')
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const timerRef = useRef<any>(null)
+
+  // Auto-resize textarea as user types
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`
+    }
+  }, [input])
+
+  // Recording timer
+  useEffect(() => {
+    if (recording) {
+      setRecordingDuration(0)
+      timerRef.current = setInterval(() => {
+        setRecordingDuration((p) => p + 1)
+      }, 1000)
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [recording])
+
+  // Helper to format bytes
+  function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
+  // Stage an incoming file
+  function stageFile(file: File) {
+    const ext = `.${file.name.split('.').pop()?.toLowerCase()}`
+    let type: 'image' | 'audio' | 'document' = 'document'
+    let previewUrl: string | undefined = undefined
+
+    if (SUPPORTED_IMAGES.split(',').includes(ext) || file.type.startsWith('image/')) {
+      type = 'image'
+      previewUrl = URL.createObjectURL(file)
+    } else if (SUPPORTED_AUDIO.split(',').includes(ext) || file.type.startsWith('audio/')) {
+      type = 'audio'
+      previewUrl = URL.createObjectURL(file)
+    }
+
+    const newAttachment: StagedAttachment = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file,
+      type,
+      previewUrl,
+    }
+
+    setStagedFiles((prev) => [...prev, newAttachment])
+
+    // If it's an audio file, trigger background transcription review without auto-submitting
+    if (type === 'audio') {
+      newAttachment.transcribing = true
+      transcribeBlob(file)
+        .then((text) => {
+          setStagedFiles((current) =>
+            current.map((att) =>
+              att.id === newAttachment.id
+                ? { ...att, transcript: text.trim(), transcribing: false }
+                : att
+            )
+          )
+        })
+        .catch(() => {
+          setStagedFiles((current) =>
+            current.map((att) =>
+              att.id === newAttachment.id ? { ...att, transcribing: false } : att
+            )
+          )
+        })
+    }
+  }
+
+  function removeStaged(id: string) {
+    setStagedFiles((prev) => {
+      const target = prev.find((item) => item.id === id)
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl)
+      }
+      return prev.filter((item) => item.id !== id)
+    })
+  }
+
+  // Voice recording
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
       chunksRef.current = []
       const recorder = new MediaRecorder(stream)
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data)
+      }
       recorder.onstop = handleRecordingStop
       recorder.start()
       recorderRef.current = recorder
       setRecording(true)
     } catch {
-      onError('Microphone permission denied or unavailable.')
+      onError('Microphone permission denied or device unavailable.')
     }
   }
 
@@ -68,94 +190,320 @@ export default function Composer({
     streamRef.current = null
     const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
     if (blob.size === 0) return
-    setTranscribing(true)
-    try {
-      const clean = (await transcribeBlob(blob)).trim()
-      if (!clean) { onError('Could not transcribe any speech.'); return }
-      setInput(clean)
-      onSubmitText(clean)
+
+    const recordedFile = new File([blob], `voice-recording-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.webm`, {
+      type: 'audio/webm',
+    })
+
+    // Stage the audio for review — strictly DO NOT auto-submit!
+    stageFile(recordedFile)
+  }
+
+  // Main Submit Action
+  async function handleSubmit(e?: React.FormEvent) {
+    if (e) e.preventDefault()
+    if (busy) {
+      if (onStopGeneration) onStopGeneration()
+      return
+    }
+
+    const queryText = input.trim()
+
+    // 1. Image staged: execute image query with custom prompt
+    const stagedImage = stagedFiles.find((f) => f.type === 'image')
+    if (stagedImage) {
+      onImageQuery(stagedImage.file, queryText)
+      setStagedFiles((prev) => prev.filter((f) => f.id !== stagedImage.id))
       setInput('')
-    } catch (err) {
-      onError((err as Error).message)
-    } finally {
-      setTranscribing(false)
+      return
+    }
+
+    // 2. Audio staged: execute audio query with custom prompt
+    const stagedAudio = stagedFiles.find((f) => f.type === 'audio')
+    if (stagedAudio) {
+      onAudioQuery(stagedAudio.file, queryText)
+      setStagedFiles((prev) => prev.filter((f) => f.id !== stagedAudio.id))
+      setInput('')
+      return
+    }
+
+    // 3. Document(s) staged: ingest and answer
+    const stagedDocs = stagedFiles.filter((f) => f.type === 'document')
+    if (stagedDocs.length > 0 && onIngestAndQuery) {
+      const docFiles = stagedDocs.map((d) => d.file)
+      setStagedFiles((prev) => prev.filter((f) => f.type !== 'document'))
+      setInput('')
+      await onIngestAndQuery(docFiles, queryText || 'Summarize the attached document(s) and highlight main points.')
+      return
+    }
+
+    // 4. Text query only
+    if (!queryText) return
+    onSubmitText(queryText)
+    setInput('')
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
     }
   }
 
   return (
-    <div className="border-t border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900 sm:px-4">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <ScopePanel files={files} scope={scope} setScope={setScope} />
+    <div
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDragOver(true)
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragOver(false)
+        Array.from(e.dataTransfer.files).forEach(stageFile)
+      }}
+      className={`border-t border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-3 sm:p-4 transition-colors ${
+        dragOver ? 'bg-brand-50/60 dark:bg-brand-950/20' : ''
+      }`}
+    >
+      <div className="max-w-4xl mx-auto space-y-3">
+        {/* Scope and Top-K Header Strip */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <ScopePanel files={files} scope={scope} setScope={setScope} />
 
-        <label className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-2 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-          top-k
-          <input
-            type="number" min={1} max={20} value={topK}
-            onChange={(e) => setTopK(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
-            className="w-11 rounded border-none bg-transparent text-center outline-none"
-            title="How many chunks to retrieve"
-          />
-        </label>
-
-        <div className="ml-auto flex items-center gap-1.5">
-          <button onClick={() => imageInputRef.current?.click()} disabled={busy}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:border-accent-300 hover:text-accent-600 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-            title="Query with an image">
-            <ImageIcon className="h-4 w-4" /><span className="hidden sm:inline">Image</span>
-          </button>
-          <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) onImageQuery(f); e.target.value = '' }} />
-
-          <button onClick={() => audioInputRef.current?.click()} disabled={busy}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:border-accent-300 hover:text-accent-600 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-            title="Query with an audio clip">
-            <AudioLines className="h-4 w-4" /><span className="hidden sm:inline">Audio</span>
-          </button>
-          <input ref={audioInputRef} type="file" accept="audio/*" className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) onAudioQuery(f); e.target.value = '' }} />
+          <label className="flex items-center gap-1.5 rounded-lg border border-surface-200 bg-surface-50 py-1 pl-2.5 pr-2 text-xs font-medium text-surface-600 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-300">
+            <span>top-k</span>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={topK}
+              onChange={(e) => setTopK(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+              className="w-8 rounded bg-transparent text-center font-mono outline-none"
+              title="Chunks retrieved per query"
+            />
+          </label>
         </div>
-      </div>
 
-      {(recording || transcribing) && (
-        <div className="mb-2 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-600 dark:bg-red-500/10 dark:text-red-400">
-          {recording ? (
-            <><span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" /> Recording… tap stop when done.</>
+        {/* Staging Shelf: Displays staged attachments with thumbnails & removal controls */}
+        {stagedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2.5 p-2.5 rounded-xl border border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-850">
+            {stagedFiles.map((att) => (
+              <div
+                key={att.id}
+                className="group relative flex items-center gap-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 p-2 text-xs shadow-subtle max-w-sm"
+              >
+                {att.type === 'image' && att.previewUrl && (
+                  <img
+                    src={att.previewUrl}
+                    alt={att.file.name}
+                    className="h-10 w-10 rounded object-cover border border-surface-200 dark:border-surface-700"
+                  />
+                )}
+                {att.type === 'audio' && (
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400">
+                    <AudioLines className="h-5 w-5" />
+                  </div>
+                )}
+                {att.type === 'document' && (
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-400">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                )}
+
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-surface-800 dark:text-surface-200">
+                    {att.file.name}
+                  </p>
+                  <p className="text-[10px] text-surface-400">
+                    {formatSize(att.file.size)} &middot; {att.type}
+                  </p>
+                  {att.transcribing && (
+                    <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+                      <Loader2 className="h-2.5 w-2.5 animate-spin" /> Transcribing speech...
+                    </span>
+                  )}
+                  {att.transcript && (
+                    <p className="mt-0.5 truncate text-[10px] text-surface-500 italic max-w-[200px]" title={att.transcript}>
+                      "{att.transcript}"
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => removeStaged(att.id)}
+                  className="rounded p-1 text-surface-400 hover:text-rose-600 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                  title={`Remove ${att.file.name}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Live Audio Recording Status Banner */}
+        {recording && (
+          <div className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200 animate-pulse">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-600" />
+              <span className="font-semibold">Recording Voice Input...</span>
+              <span className="font-mono font-medium">({recordingDuration}s)</span>
+            </div>
+            <button
+              type="button"
+              onClick={stopRecording}
+              className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1 text-xs font-semibold text-white hover:bg-rose-700"
+            >
+              <StopCircle className="h-3.5 w-3.5" />
+              <span>Done Recording</span>
+            </button>
+          </div>
+        )}
+
+        {/* Unified Input Box (Contracko / Clara AI style) */}
+        <div className="relative flex items-end gap-2 rounded-2xl border border-surface-300 bg-white p-2 shadow-sm focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500 dark:border-surface-700 dark:bg-surface-800">
+          {/* Attachment Paperclip Button & Menu */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100 hover:text-surface-800 dark:text-surface-400 dark:hover:bg-surface-700 dark:hover:text-surface-200 transition-colors"
+              title="Attach document, image, or audio"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+
+            {menuOpen && (
+              <div
+                className="absolute bottom-11 left-0 z-30 w-44 rounded-xl border border-surface-200 bg-white p-1.5 shadow-elevated dark:border-surface-700 dark:bg-surface-850 text-xs"
+                onClick={() => setMenuOpen(false)}
+              >
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-surface-100 dark:hover:bg-surface-700 text-left"
+                >
+                  <FileText className="h-4 w-4 text-brand-600" />
+                  <span>Document (PDF/Office)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-surface-100 dark:hover:bg-surface-700 text-left"
+                >
+                  <ImageIcon className="h-4 w-4 text-sky-600" />
+                  <span>Image (PNG/JPG)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => audioInputRef.current?.click()}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-surface-100 dark:hover:bg-surface-700 text-left"
+                >
+                  <AudioLines className="h-4 w-4 text-amber-600" />
+                  <span>Audio File</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Voice Record Mic Button */}
+          {!recording ? (
+            <button
+              type="button"
+              onClick={startRecording}
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100 hover:text-surface-800 dark:text-surface-400 dark:hover:bg-surface-700 dark:hover:text-surface-200 transition-colors"
+              title="Record voice instruction"
+            >
+              <Mic className="h-4 w-4" />
+            </button>
           ) : (
-            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Transcribing…</>
+            <button
+              type="button"
+              onClick={stopRecording}
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400 animate-pulse"
+              title="Stop recording"
+            >
+              <StopCircle className="h-4 w-4" />
+            </button>
+          )}
+
+          {/* Hidden File Inputs */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            data-testid="composer-doc-input"
+            accept={SUPPORTED_DOCS}
+            className="hidden"
+            onChange={(e) => {
+              Array.from(e.target.files || []).forEach(stageFile)
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={imageInputRef}
+            type="file"
+            data-testid="composer-image-input"
+            accept={SUPPORTED_IMAGES}
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) stageFile(f)
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={audioInputRef}
+            type="file"
+            data-testid="composer-audio-input"
+            accept={SUPPORTED_AUDIO}
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) stageFile(f)
+              e.target.value = ''
+            }}
+          />
+
+          {/* Textarea Input Area */}
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              stagedFiles.length > 0
+                ? 'Enter custom question or instruction for this attachment...'
+                : 'Ask a question in any language (English, Hindi, Spanish, etc.)...'
+            }
+            className="scroll-thin max-h-44 min-h-[38px] flex-1 resize-none bg-transparent py-2 px-1 text-sm text-surface-900 placeholder:text-surface-400 focus:outline-none dark:text-surface-100 dark:placeholder:text-surface-500"
+          />
+
+          {/* Send or Stop Generation Button */}
+          {busy ? (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-sm hover:bg-rose-700 transition-colors"
+              title="Stop response generation"
+            >
+              <Square className="h-4 w-4 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleSubmit()}
+              disabled={!input.trim() && stagedFiles.length === 0}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm hover:bg-brand-700 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+              title="Send message (Enter)"
+            >
+              <Send className="h-4 w-4" />
+            </button>
           )}
         </div>
-      )}
-
-      <div className="flex items-end gap-2">
-        <button
-          onClick={recording ? stopRecording : startRecording}
-          disabled={busy || transcribing}
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition disabled:opacity-50 ${
-            recording ? 'border-red-300 bg-red-500 text-white hover:bg-red-600'
-                      : 'border-slate-200 bg-white text-slate-500 hover:border-accent-300 hover:text-accent-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'
-          }`}
-          title={recording ? 'Stop recording' : 'Voice query'}
-        >
-          {recording ? <Square className="h-4 w-4" /> : <Mic className="h-5 w-5" />}
-        </button>
-
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-          rows={1}
-          placeholder="Ask about your documents, images or audio…"
-          className="scroll-thin max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-accent-400 focus:bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:bg-slate-800"
-        />
-
-        <button
-          onClick={submit}
-          disabled={busy || !input.trim()}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-600 text-white transition hover:bg-accent-700 disabled:opacity-40"
-          title="Send"
-        >
-          {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-        </button>
       </div>
     </div>
   )

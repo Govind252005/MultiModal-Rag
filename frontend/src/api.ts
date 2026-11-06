@@ -88,8 +88,8 @@ export async function logout(): Promise<void> {
 export const health = () => request<HealthResponse>('/api/health')
 
 // ---- sessions --------------------------------------------------------------
-export const listSessions = () =>
-  request<{ sessions: SessionSummary[] }>('/api/sessions').then((r) => r.sessions)
+export const listSessions = (): Promise<SessionSummary[]> =>
+  request<any>('/api/sessions').then((r) => (Array.isArray(r) ? r : (r?.sessions || [])))
 export const createSession = (title = 'New chat') =>
   request<SessionDetail>('/api/sessions', json({ title }))
 export const getSession = (id: string) =>
@@ -127,19 +127,21 @@ export function query(sessionId: string, q: string, topK: number,
   }))
 }
 export function queryImage(sessionId: string, file: File, topK: number, files: string[],
-                           provider?: ProviderName): Promise<ImageQueryResponse> {
+                           provider?: ProviderName, query?: string): Promise<ImageQueryResponse> {
   const form = new FormData()
   form.append('session_id', sessionId); form.append('file', file); form.append('top_k', String(topK))
   if (files.length) form.append('files', files.join(','))
   if (provider) form.append('provider', provider)
+  if (query) form.append('query', query)
   return request<ImageQueryResponse>('/api/query/image', { method: 'POST', body: form })
 }
 export function queryAudio(sessionId: string, file: File, topK: number, files: string[],
-                           provider?: ProviderName): Promise<AudioQueryResponse> {
+                           provider?: ProviderName, query?: string): Promise<AudioQueryResponse> {
   const form = new FormData()
   form.append('session_id', sessionId); form.append('file', file); form.append('top_k', String(topK))
   if (files.length) form.append('files', files.join(','))
   if (provider) form.append('provider', provider)
+  if (query) form.append('query', query)
   return request<AudioQueryResponse>('/api/query/audio', { method: 'POST', body: form })
 }
 export function transcribe(sessionId: string, blob: Blob): Promise<TranscribeResponse> {
@@ -239,9 +241,10 @@ export async function queryStream(
         }
 
         if (eventName === 'citations') {
-          callbacks.onCitations?.(payload as Citation[])
-        } else if (eventName === 'delta') {
-          const text = (payload as { text?: string }).text
+          const arr = Array.isArray(payload) ? payload : ((payload as any)?.citations || [])
+          callbacks.onCitations?.(arr as Citation[])
+        } else if (eventName === 'delta' || eventName === 'token') {
+          const text = (payload as { text?: string; token?: string }).text ?? (payload as any)?.token
           if (text) callbacks.onDelta?.(text)
         } else if (eventName === 'done') {
           callbacks.onDone?.(payload as { used_llm: boolean; metrics: StreamMetrics })

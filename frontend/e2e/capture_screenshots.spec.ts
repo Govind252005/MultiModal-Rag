@@ -152,3 +152,4 @@ test('Capture Screenshots for Stage 1 & 2', async ({ page }) => {
   await page.waitForTimeout(300)
   await page.screenshot({ path: path.join(artifactDir, 'screenshot_5_dashboard_dark.png'), fullPage: true })
 })
+

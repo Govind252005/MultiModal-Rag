@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelRight, Loader2 } from "lucide-react";
 
 import * as api from "./api";
@@ -81,6 +81,15 @@ export default function App() {
   const [provider, setProvider] = useState<ProviderName>("ollama");
   const [activeProviderInfo, setActiveProviderInfo] = useState<ActiveProviderResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const abortCtrlRef = useRef<AbortController | null>(null);
+
+  function stopGeneration() {
+    if (abortCtrlRef.current) {
+      abortCtrlRef.current.abort();
+      abortCtrlRef.current = null;
+    }
+    setBusy(false);
+  }
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
@@ -115,7 +124,8 @@ export default function App() {
 
   const loadSessions = useCallback(async () => {
     try {
-      setSessions(await api.listSessions());
+      const res = await api.listSessions();
+      setSessions(res || []);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -143,9 +153,9 @@ export default function App() {
 
   // Load the most recent session's document library so the Dashboard displays genuine files
   useEffect(() => {
-    if (user && sessions.length > 0 && !currentId) {
+    if (user && sessions && sessions.length > 0 && !currentId) {
       api.getSession(sessions[0].id).then((s) => {
-        if (s.files && s.files.length > 0) setFiles(s.files);
+        if (s && s.files && s.files.length > 0) setFiles(s.files);
       }).catch(() => {});
     }
   }, [user, sessions, currentId]);
@@ -343,44 +353,55 @@ export default function App() {
     });
     setBusy(true);
 
+    const abortCtrl = new AbortController();
+    abortCtrlRef.current = abortCtrl;
+
     let streamedAny = false;
     let finalCitations: Citation[] = [];
 
     try {
-      await api.queryStream(sid, text, topK, scope.modality, scope.files, provider, {
-        onCitations: (c) => {
-          finalCitations = c;
+      await api.queryStream(
+        sid,
+        text,
+        topK,
+        scope.modality,
+        scope.files,
+        provider,
+        {
+          onCitations: (c) => {
+            finalCitations = c;
+          },
+          onDelta: (delta) => {
+            streamedAny = true;
+            updateMessage(aId, (prev) => ({
+              text: (prev.text || "") + delta,
+              loading: false,
+            }));
+          },
+          onDone: (info) => {
+            updateMessage(aId, {
+              citations: finalCitations,
+              usedLlm: info.used_llm,
+              loading: false,
+            });
+            setCitations(finalCitations);
+            loadSessions();
+          },
+          onError: (err) => {
+            throw err;
+          },
         },
-        onDelta: (delta) => {
-          streamedAny = true;
-          updateMessage(aId, (prev) => ({
-            text: (prev.text || "") + delta,
-            loading: false,
-          }));
-        },
-        onDone: (info) => {
-          updateMessage(aId, {
-            citations: finalCitations,
-            usedLlm: info.used_llm,
-            loading: false,
-          });
-          setCitations(finalCitations);
-          loadSessions();
-        },
-        onError: (err) => {
-          throw err;
-        },
-      });
+        abortCtrl.signal
+      );
     } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        updateMessage(aId, { loading: false });
+        return;
+      }
       if (streamedAny) {
-        // Streaming started but broke mid-way — leave whatever text arrived
-        // rather than discarding it, and surface the error separately.
         updateMessage(aId, { loading: false });
         setError((err as Error).message);
       } else {
-        // Streaming endpoint never produced anything (older backend, network
-        // hiccup, etc.) — fall back to the blocking endpoint so the person
-        // still gets an answer instead of just an error.
         try {
           const res = await api.query(sid, text, topK, scope.modality, scope.files, provider);
           updateMessage(aId, {
@@ -401,16 +422,19 @@ export default function App() {
         }
       }
     } finally {
+      abortCtrlRef.current = null;
       setBusy(false);
     }
   }
-  async function handleImageQuery(file: File) {
+
+  async function handleImageQuery(file: File, query?: string) {
     const sid = await ensureSession();
     const imageUrl = URL.createObjectURL(file);
+    const userPrompt = query?.trim() ? query.trim() : `[Image query: ${file.name}]`;
     addMessage({
       id: uid(),
       role: "user",
-      text: `[Image query: ${file.name}]`,
+      text: userPrompt,
       imageUrl,
     });
     const aId = addMessage({
@@ -421,7 +445,7 @@ export default function App() {
     });
     setBusy(true);
     try {
-      const res = await api.queryImage(sid, file, topK, scope.files, provider);
+      const res = await api.queryImage(sid, file, topK, scope.files, provider, query?.trim());
       updateMessage(aId, {
         text: res.answer,
         citations: res.citations,
@@ -443,12 +467,14 @@ export default function App() {
       setBusy(false);
     }
   }
-  async function handleAudioQuery(file: File) {
+
+  async function handleAudioQuery(file: File, query?: string) {
     const sid = await ensureSession();
+    const userPrompt = query?.trim() ? query.trim() : `[Audio query: ${file.name}]`;
     addMessage({
       id: uid(),
       role: "user",
-      text: `[Audio query: ${file.name}]`,
+      text: userPrompt,
     });
     const aId = addMessage({
       id: uid(),
@@ -458,7 +484,7 @@ export default function App() {
     });
     setBusy(true);
     try {
-      const res = await api.queryAudio(sid, file, topK, scope.files, provider);
+      const res = await api.queryAudio(sid, file, topK, scope.files, provider, query?.trim());
       updateMessage(aId, {
         text: res.answer,
         citations: res.citations,
@@ -478,6 +504,14 @@ export default function App() {
       setError((err as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  function handleRegenerate() {
+    const userMsgs = messages.filter((m) => m.role === 'user');
+    if (userMsgs.length > 0) {
+      const lastUserMsg = userMsgs[userMsgs.length - 1];
+      handleTextQuery(lastUserMsg.text);
     }
   }
   const transcribeBlob = useCallback(
@@ -591,11 +625,14 @@ export default function App() {
                 <ChatPanel
                   messages={messages}
                   onCitationClick={handleCitationClick}
+                  onPromptClick={(p) => handleTextQuery(p)}
+                  onRegenerate={handleRegenerate}
                 />
                 <Composer
                   onSubmitText={handleTextQuery}
                   onImageQuery={handleImageQuery}
                   onAudioQuery={handleAudioQuery}
+                  onStopGeneration={stopGeneration}
                   transcribeBlob={transcribeBlob}
                   onError={setError}
                   busy={busy}

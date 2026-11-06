@@ -1307,6 +1307,7 @@ def summarize(req: QueryRequest, user: dict = Depends(get_user)):
 
 @app.post("/api/query/image")
 async def query_image(session_id: str = Form(...), file: UploadFile = File(...),
+                      query: Optional[str] = Form(None),
                       top_k: int = Form(config.DEFAULT_TOP_K), files: Optional[str] = Form(None),
                       provider: Optional[str] = Form(None),
                       user: dict = Depends(get_user)):
@@ -1315,9 +1316,11 @@ async def query_image(session_id: str = Form(...), file: UploadFile = File(...),
     _require_owner(session_id, user)
     _check_chat_rate_limit(user["id"])
 
+    user_query = (query or "").strip()
     resolved_provider = _resolve_provider(provider, user["id"])
     payload = {
         "session_id": session_id,
+        "query": user_query,
         "top_k": top_k,
         "files": (files or "").split(",") if files else [],
         "route": "query_image",
@@ -1340,13 +1343,17 @@ async def query_image(session_id: str = Form(...), file: UploadFile = File(...),
     res = search.image_query(image, top_k=top_k, session_id=session_id,
                              files=file_filter, user_id=user["id"], org_id=org_id)
     hits = res["hits"]
-    pseudo_q = (f"Describe and summarize the content related to this image "
-                f"(caption: '{res['query_caption']}').")
-    generated = answer_mod.answer_query(pseudo_q, hits, history=_history_for(session_id),
+    default_prompt = (f"Describe and summarize the content related to this image "
+                      f"(caption: '{res['query_caption']}').")
+    prompt_q = (f"Image Context: (caption: '{res['query_caption']}', OCR: '{res['query_ocr']}').\n"
+                f"User Question: {user_query}") if user_query else default_prompt
+
+    generated = answer_mod.answer_query(prompt_q, hits, history=_history_for(session_id),
                                         provider=resolved_provider, user_id=user["id"],
                                         session_dir=_session_dir(session_id))
 
-    session_store.append_message(session_id, {"role": "user", "text": f"[Image query: {file.filename}]"})
+    user_msg = f"[Image: {file.filename}] {user_query}" if user_query else f"[Image query: {file.filename}]"
+    session_store.append_message(session_id, {"role": "user", "text": user_msg})
     session_store.append_message(session_id, {
         "role": "assistant", "text": generated["answer"], "citations": generated["citations"],
         "usedLlm": generated["used_llm"], "contextLabel": "Detected in image",
@@ -1366,6 +1373,7 @@ async def query_image(session_id: str = Form(...), file: UploadFile = File(...),
 
 @app.post("/api/query/audio")
 async def query_audio(session_id: str = Form(...), file: UploadFile = File(...),
+                      query: Optional[str] = Form(None),
                       top_k: int = Form(config.DEFAULT_TOP_K), files: Optional[str] = Form(None),
                       provider: Optional[str] = Form(None),
                       user: dict = Depends(get_user)):
@@ -1374,9 +1382,11 @@ async def query_audio(session_id: str = Form(...), file: UploadFile = File(...),
     _require_owner(session_id, user)
     _check_chat_rate_limit(user["id"])
 
+    user_query = (query or "").strip()
     resolved_provider = _resolve_provider(provider, user["id"])
     payload = {
         "session_id": session_id,
+        "query": user_query,
         "top_k": top_k,
         "files": (files or "").split(",") if files else [],
         "route": "query_audio",
@@ -1396,14 +1406,18 @@ async def query_audio(session_id: str = Form(...), file: UploadFile = File(...),
         raise HTTPException(400, "Could not transcribe any speech from the audio.")
 
     file_filter = [f for f in (files or "").split(",") if f] or None
-    hits = search.text_query(transcript, top_k=top_k, modality="all",
+    search_q = user_query if user_query else transcript
+    hits = search.text_query(search_q, top_k=top_k, modality="all",
                              session_id=session_id, files=file_filter, user_id=user["id"],
                              org_id=org_id)
-    generated = answer_mod.answer_query(transcript, hits, history=_history_for(session_id),
+    prompt_q = (f"Audio Transcript: '{transcript}'.\n"
+                f"User Instruction: {user_query}") if user_query else transcript
+    generated = answer_mod.answer_query(prompt_q, hits, history=_history_for(session_id),
                                         provider=resolved_provider, user_id=user["id"],
                                         session_dir=_session_dir(session_id))
 
-    session_store.append_message(session_id, {"role": "user", "text": f"[Audio query: {file.filename}]"})
+    user_msg = f"[Audio: {file.filename}] {user_query}" if user_query else f"[Audio query: {file.filename}]"
+    session_store.append_message(session_id, {"role": "user", "text": user_msg})
     session_store.append_message(session_id, {
         "role": "assistant", "text": generated["answer"], "citations": generated["citations"],
         "usedLlm": generated["used_llm"], "contextLabel": "Transcript", "contextValue": transcript})

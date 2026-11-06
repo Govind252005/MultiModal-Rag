@@ -49,14 +49,16 @@ function ModalityIcon({ modality }: { modality: Modality }) {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   user,
   health,
-  sessions,
-  files,
+  sessions = [],
+  files = [],
   activeProvider,
   onStartChat,
   onSelectSession,
   onOpenUpload,
   onNavigate,
 }) => {
+  const safeFiles = files || []
+  const safeSessions = sessions || []
   const isLocal = activeProvider?.mode === 'local'
   const textChunks = health?.index?.text_items ?? 0
   const imageChunks = health?.index?.image_items ?? 0
@@ -97,7 +99,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Indexed Documents
               </p>
               <h3 className="mt-2 text-2xl font-bold text-surface-900 dark:text-surface-100">
-                {files.length}
+                {safeFiles.length}
               </h3>
               <p className="mt-1 text-[11px] text-surface-400">
                 Across active session library
@@ -137,7 +139,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 AI Conversations
               </p>
               <h3 className="mt-2 text-2xl font-bold text-surface-900 dark:text-surface-100">
-                {sessions.length}
+                {safeSessions.length}
               </h3>
               <p className="mt-1 text-[11px] text-surface-400">
                 Saved multi-turn sessions
@@ -229,14 +231,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </CardHeader>
 
           <CardContent className="p-0">
-            {files.length === 0 ? (
+            {safeFiles.length === 0 ? (
               <div className="p-8 text-center text-xs text-surface-400">
                 <FileText className="mx-auto mb-2 h-8 w-8 text-surface-300 dark:text-surface-600" />
                 No documents uploaded yet in this workspace.
               </div>
             ) : (
               <ul className="divide-y divide-surface-100 dark:divide-surface-800">
-                {files.slice(0, 5).map((f) => (
+                {safeFiles.slice(0, 5).map((f) => (
                   <li
                     key={f.file}
                     className="flex items-center justify-between px-5 py-3 hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors"
@@ -278,14 +280,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </CardHeader>
 
           <CardContent className="p-0">
-            {sessions.length === 0 ? (
+            {safeSessions.length === 0 ? (
               <div className="p-8 text-center text-xs text-surface-400">
                 <MessageSquare className="mx-auto mb-2 h-8 w-8 text-surface-300 dark:text-surface-600" />
                 No conversation history yet. Start your first session!
               </div>
             ) : (
               <ul className="divide-y divide-surface-100 dark:divide-surface-800">
-                {sessions.slice(0, 5).map((s) => (
+                {safeSessions.slice(0, 5).map((s) => (
                   <li
                     key={s.id}
                     onClick={() => onSelectSession(s.id)}
@@ -313,3 +315,4 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     </div>
   )
 }
+

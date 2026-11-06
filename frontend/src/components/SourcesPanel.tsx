@@ -23,6 +23,7 @@ export default function SourcesPanel({
   open: boolean
   onClose: () => void
 }) {
+  const safeCitations = Array.isArray(citations) ? citations : []
   return (
     <>
       {open && <div className="fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-sm lg:hidden" onClick={onClose} />}
@@ -30,19 +31,19 @@ export default function SourcesPanel({
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
           <Library className="h-4 w-4 text-accent-600" />
           <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Sources</h2>
-          {citations.length > 0 && (
-            <span className="ml-auto rounded-full bg-accent-50 px-2 py-0.5 text-xs font-medium text-accent-600 dark:bg-accent-500/15 dark:text-accent-300">{citations.length}</span>
+          {safeCitations.length > 0 && (
+            <span className="ml-auto rounded-full bg-accent-50 px-2 py-0.5 text-xs font-medium text-accent-600 dark:bg-accent-500/15 dark:text-accent-300">{safeCitations.length}</span>
           )}
           <button onClick={onClose} className="ml-1 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"><X className="h-4 w-4" /></button>
         </div>
 
-        {citations.length === 0 ? (
+        {safeCitations.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
             <p className="text-sm text-slate-400">Citations for the latest answer appear here.</p>
           </div>
         ) : (
           <div className="space-y-3 p-4">
-            {citations.map((c) => (
+            {safeCitations.map((c) => (
               <CitationCard key={`${c.index}-${c.id}`} citation={c} flash={flashIndex === c.index} onError={onError} />
             ))}
           </div>
