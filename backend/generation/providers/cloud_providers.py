@@ -30,6 +30,51 @@ def _get_key(user_id: Optional[str], provider: str) -> str:
 class OpenAIProvider(BaseProvider):
     name = "openai"
 
+    DEFAULT_MODELS = [
+        {"id": "gpt-4o", "name": "GPT-4o (Omni Multimodal)", "context_window": 128000},
+        {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Fast & Intelligent)", "context_window": 128000},
+        {"id": "o3-mini", "name": "o3-mini (Reasoning)", "context_window": 200000},
+        {"id": "o1", "name": "o1 (High-Tier Reasoning)", "context_window": 200000},
+        {"id": "o1-mini", "name": "o1-mini (Fast Reasoning)", "context_window": 128000},
+        {"id": "gpt-4-turbo", "name": "GPT-4 Turbo", "context_window": 128000},
+        {"id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo", "context_window": 16385},
+    ]
+
+    def get_model_list(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        try:
+            key = _get_key(user_id, "openai")
+        except Exception:
+            return list(self.DEFAULT_MODELS)
+
+        try:
+            from openai import OpenAI  # type: ignore
+            client = OpenAI(api_key=key, timeout=10)
+            res = client.models.list()
+            chat_models = []
+            for m in getattr(res, "data", []) or []:
+                mid = getattr(m, "id", "") or ""
+                if (
+                    mid.startswith("gpt-") or mid.startswith("o1") or mid.startswith("o3") or mid.startswith("chatgpt-")
+                ) and not any(x in mid for x in ("instruct", "realtime", "audio", "whisper", "tts", "embedding")):
+                    chat_models.append({"id": mid, "name": mid})
+            if chat_models:
+                def _sort_key(item: dict) -> int:
+                    mid = item["id"]
+                    if mid == "gpt-4o":
+                        return 0
+                    if mid == "gpt-4o-mini":
+                        return 1
+                    if "o3-mini" in mid:
+                        return 2
+                    if "o1" in mid:
+                        return 3
+                    return 4
+                chat_models.sort(key=_sort_key)
+                return chat_models
+        except Exception:
+            pass
+        return list(self.DEFAULT_MODELS)
+
     def generate_answer(
         self,
         system: str,
@@ -37,6 +82,7 @@ class OpenAIProvider(BaseProvider):
         history: Optional[List[dict]] = None,
         user_id: Optional[str] = None,
         image_paths: Optional[List[str]] = None,
+        model: Optional[str] = None,
     ) -> str:
         from openai import OpenAI  # type: ignore
         key = _get_key(user_id, "openai")
@@ -45,8 +91,9 @@ class OpenAIProvider(BaseProvider):
         for t in history or []:
             messages.append({"role": t["role"], "content": t["content"]})
         messages.append({"role": "user", "content": user})
+        target_model = model or config.OPENAI_MODEL
         resp = client.chat.completions.create(
-            model=config.OPENAI_MODEL,
+            model=target_model,
             messages=messages,
             temperature=config.CLOUD_TEMPERATURE,
             max_tokens=config.CLOUD_MAX_TOKENS,
@@ -68,6 +115,7 @@ class OpenAIProvider(BaseProvider):
         history: Optional[List[dict]] = None,
         user_id: Optional[str] = None,
         image_paths: Optional[List[str]] = None,
+        model: Optional[str] = None,
     ) -> Iterator[Dict[str, Any]]:
         from openai import OpenAI  # type: ignore
         key = _get_key(user_id, "openai")
@@ -77,20 +125,21 @@ class OpenAIProvider(BaseProvider):
             messages.append({"role": t["role"], "content": t["content"]})
         messages.append({"role": "user", "content": user})
 
+        target_model = model or config.OPENAI_MODEL
         start = time.perf_counter()
         first_token_at = None
         parts: List[str] = []
         usage = None
         try:
             stream = client.chat.completions.create(
-                model=config.OPENAI_MODEL, messages=messages,
+                model=target_model, messages=messages,
                 temperature=config.CLOUD_TEMPERATURE, max_tokens=config.CLOUD_MAX_TOKENS,
                 stream=True, stream_options={"include_usage": True},
             )
         except TypeError:
             # Older SDK without stream_options support.
             stream = client.chat.completions.create(
-                model=config.OPENAI_MODEL, messages=messages,
+                model=target_model, messages=messages,
                 temperature=config.CLOUD_TEMPERATURE, max_tokens=config.CLOUD_MAX_TOKENS,
                 stream=True,
             )
@@ -114,7 +163,7 @@ class OpenAIProvider(BaseProvider):
         yield {
             "done": True, "text": "".join(parts),
             "metrics": {
-                "provider": "openai", "model": config.OPENAI_MODEL,
+                "provider": "openai", "model": target_model,
                 "streaming_enabled": True,
                 "ttft_ms": round(ttft_ms, 1) if ttft_ms is not None else None,
                 "generation_time_ms": round(gen_ms, 1) if gen_ms is not None else None,
@@ -140,6 +189,36 @@ class OpenAIProvider(BaseProvider):
 class ClaudeProvider(BaseProvider):
     name = "claude"
 
+    DEFAULT_MODELS = [
+        {"id": "claude-3-7-sonnet-20250219", "name": "Claude 3.7 Sonnet (Hybrid Thinking)", "context_window": 200000},
+        {"id": "claude-3-5-sonnet-latest", "name": "Claude 3.5 Sonnet", "context_window": 200000},
+        {"id": "claude-3-5-haiku-latest", "name": "Claude 3.5 Haiku (Fast & Affordable)", "context_window": 200000},
+        {"id": "claude-3-opus-latest", "name": "Claude 3 Opus (Complex Analysis)", "context_window": 200000},
+    ]
+
+    def get_model_list(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        try:
+            key = _get_key(user_id, "claude")
+        except Exception:
+            return list(self.DEFAULT_MODELS)
+
+        try:
+            import anthropic  # type: ignore
+            client = anthropic.Anthropic(api_key=key, timeout=10)
+            if hasattr(client, "models") and hasattr(client.models, "list"):
+                res = client.models.list()
+                chat_models = []
+                for m in getattr(res, "data", []) or []:
+                    mid = getattr(m, "id", "") or ""
+                    if mid.startswith("claude-"):
+                        display_name = getattr(m, "display_name", mid) or mid
+                        chat_models.append({"id": mid, "name": display_name})
+                if chat_models:
+                    return chat_models
+        except Exception:
+            pass
+        return list(self.DEFAULT_MODELS)
+
     def generate_answer(
         self,
         system: str,
@@ -147,6 +226,7 @@ class ClaudeProvider(BaseProvider):
         history: Optional[List[dict]] = None,
         user_id: Optional[str] = None,
         image_paths: Optional[List[str]] = None,
+        model: Optional[str] = None,
     ) -> str:
         import anthropic  # type: ignore
         key = _get_key(user_id, "claude")
@@ -155,8 +235,9 @@ class ClaudeProvider(BaseProvider):
         for t in history or []:
             messages.append({"role": t["role"], "content": t["content"]})
         messages.append({"role": "user", "content": user})
+        target_model = model or config.CLAUDE_MODEL
         resp = client.messages.create(
-            model=config.CLAUDE_MODEL,
+            model=target_model,
             system=system,
             messages=messages,
             temperature=config.CLOUD_TEMPERATURE,
@@ -167,7 +248,15 @@ class ClaudeProvider(BaseProvider):
     def validate_api_key(self, key: str) -> bool:
         try:
             import anthropic  # type: ignore
-            anthropic.Anthropic(api_key=key, timeout=10).models.list()
+            client = anthropic.Anthropic(api_key=key, timeout=10)
+            if hasattr(client, "models") and hasattr(client.models, "list"):
+                client.models.list()
+            else:
+                client.messages.create(
+                    model="claude-3-5-haiku-latest",
+                    max_tokens=1,
+                    messages=[{"role": "user", "content": "hi"}]
+                )
             return True
         except Exception:
             return False
@@ -179,6 +268,7 @@ class ClaudeProvider(BaseProvider):
         history: Optional[List[dict]] = None,
         user_id: Optional[str] = None,
         image_paths: Optional[List[str]] = None,
+        model: Optional[str] = None,
     ) -> Iterator[Dict[str, Any]]:
         import anthropic  # type: ignore
         key = _get_key(user_id, "claude")
@@ -188,12 +278,13 @@ class ClaudeProvider(BaseProvider):
             messages.append({"role": t["role"], "content": t["content"]})
         messages.append({"role": "user", "content": user})
 
+        target_model = model or config.CLAUDE_MODEL
         start = time.perf_counter()
         first_token_at = None
         parts: List[str] = []
         final_message = None
         with client.messages.stream(
-            model=config.CLAUDE_MODEL, system=system, messages=messages,
+            model=target_model, system=system, messages=messages,
             temperature=config.CLOUD_TEMPERATURE, max_tokens=config.CLOUD_MAX_TOKENS,
         ) as stream:
             for text in stream.text_stream:
@@ -212,7 +303,7 @@ class ClaudeProvider(BaseProvider):
         yield {
             "done": True, "text": "".join(parts),
             "metrics": {
-                "provider": "claude", "model": config.CLAUDE_MODEL,
+                "provider": "claude", "model": target_model,
                 "streaming_enabled": True,
                 "ttft_ms": round(ttft_ms, 1) if ttft_ms is not None else None,
                 "generation_time_ms": round(gen_ms, 1) if gen_ms is not None else None,

@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Scheduled Snapshot Backup for Multimodal Offline RAG
+RefersTo=multimodal-rag-backup.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

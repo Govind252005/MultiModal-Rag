@@ -40,9 +40,24 @@ export const ModelSettingsView: React.FC<ModelSettingsViewProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  // API Key management
+  // API Key management & model selection
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
   const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [validatingKey, setValidatingKey] = useState<string | null>(null)
+  const [keyValidation, setKeyValidation] = useState<Record<string, 'idle' | 'valid' | 'invalid'>>({})
+  const [providerModels, setProviderModels] = useState<Record<string, { id: string; name: string }[]>>({})
+  const [selectedModels, setSelectedModels] = useState<Record<string, string>>({})
+
+  const loadModelsForProvider = async (pName: ProviderName) => {
+    try {
+      const res = await api.getProviderModels(pName)
+      if (res && res.models) {
+        setProviderModels((prev) => ({ ...prev, [pName]: res.models }))
+      }
+    } catch {
+      // Fallback
+    }
+  }
 
   const loadData = async () => {
     setLoading(true)
@@ -54,10 +69,18 @@ export const ModelSettingsView: React.FC<ModelSettingsViewProps> = ({
         api.getOllamaStatus(),
         api.getEmbeddingMetadata(),
       ])
-      setProviders(provRes.providers || [])
+      const provList = provRes.providers || []
+      setProviders(provList)
       setActiveProvider(activeRes)
       setOllamaStatus(ollamaRes)
       setEmbeddingMeta(embedRes)
+
+      // Preload models for providers that have active keys
+      for (const p of provList) {
+        if (!p.local && p.has_key) {
+          loadModelsForProvider(p.name)
+        }
+      }
     } catch (err: any) {
       setError(err?.message || 'Failed to load model settings')
     } finally {
@@ -85,9 +108,10 @@ export const ModelSettingsView: React.FC<ModelSettingsViewProps> = ({
 
   const handleActivateProvider = async (providerName: ProviderName, model?: string) => {
     try {
-      const res = await api.activateProvider(providerName, model)
+      const targetModel = model || selectedModels[providerName]
+      const res = await api.activateProvider(providerName, targetModel)
       setActiveProvider(res)
-      setNotice(`Switched active inference provider to ${providerName.toUpperCase()}.`)
+      setNotice(`Switched active inference provider to ${providerName.toUpperCase()}${targetModel ? ` (${targetModel})` : ''}.`)
       setTimeout(() => setNotice(null), 3000)
       onProviderChanged?.(providerName)
       await loadData()
@@ -96,16 +120,48 @@ export const ModelSettingsView: React.FC<ModelSettingsViewProps> = ({
     }
   }
 
+  const handleTestKey = async (providerName: ProviderName) => {
+    const key = keyInputs[providerName]
+    if (!key) return
+    setValidatingKey(providerName)
+    setKeyValidation((prev) => ({ ...prev, [providerName]: 'idle' }))
+    try {
+      const res = await api.validateProviderKey(providerName, key.trim())
+      setKeyValidation((prev) => ({ ...prev, [providerName]: res.valid ? 'valid' : 'invalid' }))
+      if (res.valid) {
+        setNotice(`API key for ${providerName.toUpperCase()} verified successfully ✓`)
+        setTimeout(() => setNotice(null), 3000)
+      } else {
+        setError(`API key verification failed for ${providerName.toUpperCase()} ✗`)
+      }
+    } catch (err: any) {
+      setKeyValidation((prev) => ({ ...prev, [providerName]: 'invalid' }))
+      setError(`Verification error: ${err.message}`)
+    } finally {
+      setValidatingKey(null)
+    }
+  }
+
   const handleSaveKey = async (providerName: ProviderName) => {
     const key = keyInputs[providerName]
     if (!key) return
     setSavingKey(providerName)
     try {
-      await api.setProviderKey(providerName, key)
-      setNotice(`API key saved for ${providerName.toUpperCase()}.`)
+      // Automatic validation before saving if not already verified
+      if (keyValidation[providerName] !== 'valid') {
+        const vres = await api.validateProviderKey(providerName, key.trim())
+        if (!vres.valid) {
+          setKeyValidation((prev) => ({ ...prev, [providerName]: 'invalid' }))
+          throw new Error(`API key verification failed for ${providerName.toUpperCase()}. Key not saved.`)
+        }
+        setKeyValidation((prev) => ({ ...prev, [providerName]: 'valid' }))
+      }
+      await api.setProviderKey(providerName, key.trim())
+      setNotice(`API key verified and saved for ${providerName.toUpperCase()}.`)
       setTimeout(() => setNotice(null), 3000)
       setKeyInputs((prev) => ({ ...prev, [providerName]: '' }))
       await loadData()
+      await loadModelsForProvider(providerName)
     } catch (err: any) {
       setError(`Failed to save API key: ${err.message}`)
     } finally {
@@ -477,47 +533,101 @@ export const ModelSettingsView: React.FC<ModelSettingsViewProps> = ({
                 </div>
 
                 <div className="text-xs text-surface-500 font-mono">
-                  Model: {p.model || '—'}
+                  Active Model: {selectedModels[p.name] || p.model || '—'}
                 </div>
 
                 {!p.local && (
                   <div className="space-y-2 pt-1 border-t border-surface-100 dark:border-surface-800">
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="text-surface-400">API Key:</span>
-                      <span className="font-medium text-surface-700 dark:text-surface-300">
-                        {p.has_key ? '•••••••• (Stored)' : 'Not configured'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {keyValidation[p.name] === 'valid' && (
+                          <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                            Verified ✓
+                          </span>
+                        )}
+                        {keyValidation[p.name] === 'invalid' && (
+                          <span className="text-[10px] font-medium text-rose-500">
+                            Invalid ✗
+                          </span>
+                        )}
+                        <span className="font-medium text-surface-700 dark:text-surface-300">
+                          {p.has_key ? '•••••••• (Stored)' : 'Not configured'}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex gap-1.5">
-                      <Input
-                        type="password"
-                        placeholder="Paste API key..."
-                        value={keyInputs[p.name] || ''}
-                        onChange={(e) =>
-                          setKeyInputs((prev) => ({ ...prev, [p.name]: e.target.value }))
-                        }
-                        className="text-xs py-1"
-                      />
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleSaveKey(p.name)}
-                        disabled={!keyInputs[p.name] || savingKey === p.name}
-                      >
-                        Save
-                      </Button>
-                      {p.has_key && (
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex gap-1.5">
+                        <Input
+                          type="password"
+                          placeholder={`Paste ${p.label} API key...`}
+                          value={keyInputs[p.name] || ''}
+                          onChange={(e) => {
+                            setKeyInputs((prev) => ({ ...prev, [p.name]: e.target.value }))
+                            setKeyValidation((prev) => ({ ...prev, [p.name]: 'idle' }))
+                          }}
+                          className="text-xs py-1"
+                        />
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => handleDeleteKey(p.name)}
-                          className="text-red-500 text-xs px-2"
+                          onClick={() => handleTestKey(p.name)}
+                          disabled={!keyInputs[p.name] || validatingKey === p.name}
+                          title="Verify API key validity"
                         >
-                          Clear
+                          {validatingKey === p.name ? 'Checking...' : 'Verify'}
                         </Button>
-                      )}
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleSaveKey(p.name)}
+                          disabled={!keyInputs[p.name] || savingKey === p.name}
+                        >
+                          {savingKey === p.name ? 'Saving...' : 'Save'}
+                        </Button>
+                        {p.has_key && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteKey(p.name)}
+                            className="text-red-500 text-xs px-2"
+                            title="Remove stored key"
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Model Selector for Cloud Provider with Verified Key */}
+                    {p.has_key && (
+                      <div className="space-y-1 pt-1.5 border-t border-surface-100 dark:border-surface-800">
+                        <div className="flex items-center justify-between text-[11px] text-surface-500">
+                          <span>Available Models:</span>
+                          <span className="text-[10px] text-brand-600 dark:text-brand-400 font-medium">
+                            {providerModels[p.name]?.length || 0} models
+                          </span>
+                        </div>
+                        <select
+                          value={selectedModels[p.name] || p.model}
+                          onChange={(e) => {
+                            const newModel = e.target.value
+                            setSelectedModels((prev) => ({ ...prev, [p.name]: newModel }))
+                            if (isActive) {
+                              handleActivateProvider(p.name, newModel)
+                            }
+                          }}
+                          className="w-full rounded-lg border border-surface-200 bg-white px-2 py-1.5 text-xs text-surface-800 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-100 outline-none focus:ring-1 focus:ring-brand-500"
+                        >
+                          {(providerModels[p.name] || [{ id: p.model, name: p.model }]).map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name || m.id}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -525,7 +635,7 @@ export const ModelSettingsView: React.FC<ModelSettingsViewProps> = ({
                   <Button
                     size="sm"
                     variant={isActive ? 'secondary' : 'primary'}
-                    onClick={() => handleActivateProvider(p.name)}
+                    onClick={() => handleActivateProvider(p.name, selectedModels[p.name] || p.model)}
                     disabled={isActive || (!p.local && !p.has_key)}
                     className="w-full justify-center"
                   >

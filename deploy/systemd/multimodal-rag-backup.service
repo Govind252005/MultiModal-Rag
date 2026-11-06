@@ -1,0 +1,12 @@
+[Unit]
+Description=Enterprise Multimodal Offline RAG Daily Automated Snapshot Backup
+After=multimodal-rag.service
+
+[Service]
+Type=oneshot
+User=raguser
+Group=raguser
+WorkingDirectory=/opt/multimodal-rag
+ExecStart=/opt/multimodal-rag/backend/venv/bin/python /opt/multimodal-rag/scripts/run_scheduled_backup.py
+StandardOutput=journal
+StandardError=journal

@@ -48,6 +48,9 @@ export default function ProviderPanel({
       const res = await api.getProviderModels(p)
       if (res && res.models) {
         setProviderModels((prev) => ({ ...prev, [p]: res.models }))
+        if (!selectedModels[p] && res.models.length > 0) {
+          setSelectedModels((prev) => ({ ...prev, [p]: res.models[0].id }))
+        }
       }
     } catch {
       // Non-fatal, fallback to default
@@ -80,6 +83,16 @@ export default function ProviderPanel({
     if (!keyInput.trim()) return
     setSaving(true)
     try {
+      if (validState !== 'valid') {
+        setValidating(true)
+        const vres = await api.validateProviderKey(p, keyInput.trim())
+        setValidating(false)
+        if (!vres.valid) {
+          setValidState('invalid')
+          throw new Error(`API key verification failed for ${p}. Key not saved.`)
+        }
+        setValidState('valid')
+      }
       await api.setProviderKey(p, keyInput.trim())
       setKeyInput('')
       setEditing(null)
@@ -91,6 +104,7 @@ export default function ProviderPanel({
       onError((err as Error).message)
     } finally {
       setSaving(false)
+      setValidating(false)
     }
   }
 

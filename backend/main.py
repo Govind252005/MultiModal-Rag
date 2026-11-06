@@ -514,9 +514,33 @@ def health_dependencies():
     example: 'if a noncritical cloud provider is down, the service does
     not need to become unavailable' — reflected here as independent,
     non-fatal statuses rather than one boolean)."""
+    import shutil
+    storage_ok = config.STORE_DIR.exists() and config.DATA_DIR.exists()
+    sqlite_ok = True
+    try:
+        from backend.retrieval.lexical_index import LexicalIndex
+        LexicalIndex()
+    except Exception:
+        sqlite_ok = False
+
+    disk_info = {}
+    try:
+        total, used, free = shutil.disk_usage(str(config.DATA_DIR))
+        disk_info = {
+            "total_bytes": total,
+            "used_bytes": used,
+            "free_bytes": free,
+            "free_gb": round(free / (1024**3), 2),
+        }
+    except Exception:
+        pass
+
     return {
-        "storage": "ok" if (config.STORE_DIR.exists() and config.DATA_DIR.exists()) else "unavailable",
+        "status": "healthy",
+        "storage": "ok" if storage_ok else "unavailable",
         "vector_db": "ok" if vector_store.stats() is not None else "unavailable",
+        "sqlite_fts5": "ok" if sqlite_ok else "unavailable",
+        "disk": disk_info,
         "ollama": {
             "status": "ok" if llm_client.is_available() else "unavailable",
             "model": config.LLM_MODEL,
@@ -634,14 +658,17 @@ _PROVIDER_META = {
 @app.get("/api/providers")
 def list_providers(user: dict = Depends(get_user)):
     out = []
+    active_prov = active_provider.get_active(user["id"])
+    active_custom = active_provider.get_active_model(user["id"])
     for name in registry.names():
         meta = _PROVIDER_META.get(name, {"label": name, "local": False, "model": ""})
         prov = registry.get(name)
+        curr_model = active_custom if (active_prov == name and active_custom) else meta["model"]
         out.append({
             "name": name,
             "label": meta["label"],
             "local": meta["local"],
-            "model": meta["model"],
+            "model": curr_model,
             "has_key": True if meta["local"] else keystore.has_key(user["id"], name),
             "available": prov.is_available() if meta["local"] else keystore.has_key(user["id"], name),
             "supports_images": prov.supports_images(),
@@ -658,11 +685,15 @@ def set_provider_key(req: ProviderKeyRequest, user: dict = Depends(get_user)):
         raise HTTPException(400, "The local provider does not need an API key.")
     if not req.api_key.strip():
         raise HTTPException(400, "API key is empty.")
+    prov = registry.get(req.provider)
+    is_valid = prov.validate_api_key(req.api_key.strip())
+    if not is_valid:
+        raise HTTPException(400, f"Invalid API key for {req.provider}. Verification failed.")
     keystore.set_key(user["id"], req.provider, req.api_key.strip())
     _invalidate_user_cache(user["id"])
     # brief §55: audit-log the ACTION, never the key itself.
     logging_utils.audit_log("provider_key_added", user_id=user["id"], provider=req.provider)
-    return {"status": "ok", "provider": req.provider, "has_key": True}
+    return {"status": "ok", "provider": req.provider, "has_key": True, "valid": True}
 
 
 @app.delete("/api/providers/key/{provider}")

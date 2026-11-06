@@ -7,14 +7,24 @@ cached in memory longer than a single request.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from backend import config
 from backend.generation.providers.base import BaseProvider
 
+
 class GeminiProvider(BaseProvider):
     name = "gemini"
+
+    DEFAULT_MODELS = [
+        {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash (Next-Gen Multimodal)", "context_window": 1048576},
+        {"id": "gemini-2.0-flash-lite", "name": "Gemini 2.0 Flash Lite", "context_window": 1048576},
+        {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "context_window": 1048576},
+        {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro (Complex Reasoning)", "context_window": 2097152},
+        {"id": "gemini-flash-latest", "name": "Gemini Flash Latest", "context_window": 1048576},
+    ]
 
     def _client(self, key: str):
         from google import genai  # type: ignore
@@ -29,25 +39,52 @@ class GeminiProvider(BaseProvider):
             raise ValueError("No Gemini API key found for this account.")
         return key
 
-    def generate_answer(
+    def get_model_list(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        try:
+            key = self._get_key(user_id)
+        except Exception:
+            return list(self.DEFAULT_MODELS)
+
+        try:
+            client = self._client(key)
+            models = []
+            for m in client.models.list():
+                mid = getattr(m, "name", "") or ""
+                clean_id = mid.split("/")[-1] if "/" in mid else mid
+                if "gemini" in clean_id.lower() and not any(
+                    x in clean_id.lower() for x in ("embedding", "aqa", "vision-preview")
+                ):
+                    display_name = getattr(m, "display_name", clean_id) or clean_id
+                    models.append({"id": clean_id, "name": display_name})
+            if models:
+                def _sort_key(item: dict) -> int:
+                    mid = item["id"]
+                    if "2.0-flash" in mid:
+                        return 0
+                    if "1.5-flash" in mid:
+                        return 1
+                    if "1.5-pro" in mid:
+                        return 2
+                    return 3
+                models.sort(key=_sort_key)
+                return models
+        except Exception:
+            pass
+        return list(self.DEFAULT_MODELS)
+
+    def _build_contents(
         self,
-        system: str,
         user: str,
         history: Optional[List[dict]] = None,
-        user_id: Optional[str] = None,
         image_paths: Optional[List[str]] = None,
-    ) -> str:
+    ):
         from google.genai import types  # type: ignore
-
-        key = self._get_key(user_id)
-        client = self._client(key)
 
         contents: List = []
         for turn in history or []:
             role = "user" if turn.get("role") == "user" else "model"
             contents.append(types.Content(role=role, parts=[types.Part(text=turn["content"])]))
 
-        # Build the final user turn — text + optional inline images
         user_parts = [types.Part(text=user)]
         for img_path in (image_paths or []):
             try:
@@ -70,9 +107,26 @@ class GeminiProvider(BaseProvider):
                 print(f"[gemini] could not attach image {img_path}: {exc}")
 
         contents.append(types.Content(role="user", parts=user_parts))
+        return contents
+
+    def generate_answer(
+        self,
+        system: str,
+        user: str,
+        history: Optional[List[dict]] = None,
+        user_id: Optional[str] = None,
+        image_paths: Optional[List[str]] = None,
+        model: Optional[str] = None,
+    ) -> str:
+        from google.genai import types  # type: ignore
+
+        key = self._get_key(user_id)
+        client = self._client(key)
+        contents = self._build_contents(user, history, image_paths)
+        target_model = model or config.GEMINI_MODEL
 
         response = client.models.generate_content(
-            model=config.GEMINI_MODEL,
+            model=target_model,
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=system,
@@ -82,12 +136,61 @@ class GeminiProvider(BaseProvider):
         )
         return response.text or ""
 
+    def stream_answer(
+        self,
+        system: str,
+        user: str,
+        history: Optional[List[dict]] = None,
+        user_id: Optional[str] = None,
+        image_paths: Optional[List[str]] = None,
+        model: Optional[str] = None,
+    ) -> Iterator[Dict[str, Any]]:
+        from google.genai import types  # type: ignore
+
+        key = self._get_key(user_id)
+        client = self._client(key)
+        contents = self._build_contents(user, history, image_paths)
+        target_model = model or config.GEMINI_MODEL
+
+        start = time.perf_counter()
+        first_token_at = None
+        parts: List[str] = []
+
+        response = client.models.generate_content_stream(
+            model=target_model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=config.CLOUD_TEMPERATURE,
+                max_output_tokens=config.CLOUD_MAX_TOKENS,
+            ),
+        )
+
+        for chunk in response:
+            text = getattr(chunk, "text", None)
+            if text:
+                if first_token_at is None:
+                    first_token_at = time.perf_counter()
+                parts.append(text)
+                yield {"delta": text}
+
+        end = time.perf_counter()
+        ttft_ms = (first_token_at - start) * 1000 if first_token_at else None
+        gen_ms = (end - first_token_at) * 1000 if first_token_at else None
+        yield {
+            "done": True,
+            "text": "".join(parts),
+            "metrics": {
+                "provider": "gemini",
+                "model": target_model,
+                "streaming_enabled": True,
+                "ttft_ms": round(ttft_ms, 1) if ttft_ms is not None else None,
+                "generation_time_ms": round(gen_ms, 1) if gen_ms is not None else None,
+                "total_llm_time_ms": round((end - start) * 1000, 1),
+            },
+        }
+
     def validate_api_key(self, key: str) -> bool:
-        """
-        Validate ONLY that the key authenticates — not that a specific model
-        exists. We call models.list(), which requires a valid key but does not
-        depend on any particular model being available to the project.
-        """
         try:
             from google import genai  # type: ignore
             client = genai.Client(api_key=key)

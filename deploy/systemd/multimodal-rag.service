@@ -1,0 +1,28 @@
+[Unit]
+Description=Enterprise Multimodal Offline RAG Platform Backend Service
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=raguser
+Group=raguser
+WorkingDirectory=/opt/multimodal-rag
+EnvironmentFile=/opt/multimodal-rag/.env
+ExecStart=/opt/multimodal-rag/backend/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers
+Restart=always
+RestartSec=5s
+
+# Sandboxing and Security Restrictions
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/multimodal-rag/data /opt/multimodal-rag/storage /opt/multimodal-rag/backups
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
