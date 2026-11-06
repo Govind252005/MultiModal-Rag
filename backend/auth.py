@@ -295,6 +295,7 @@ def create_user(
             "password": hash_password(password),
             "role": assigned_role,
             "org_id": target_org,
+            "status": "active",
             "created_at": _dt.datetime.now().isoformat(timespec="seconds"),
         }
         users[email] = user
@@ -314,11 +315,14 @@ def authenticate(email: str, password: str) -> Optional[Dict[str, Any]]:
         user = _load().get(email)
     if not user or not _verify_password(password, user["password"]):
         return None
+    if user.get("status", "active") == "disabled":
+        raise PermissionError("Account is disabled. Please contact your enterprise administrator.")
     return {
         "id": user["id"],
         "email": user["email"],
         "role": user.get("role", "user"),
         "org_id": user.get("org_id", "default_org"),
+        "status": user.get("status", "active"),
     }
 
 
@@ -392,6 +396,30 @@ def set_organization(email: str, org_id: str) -> Dict[str, Any]:
     return _mutate_users(_apply)
 
 
+def set_status(email: str, status: str, org_id: Optional[str] = None) -> Dict[str, Any]:
+    """Admin action to activate or disable a user account."""
+    if status not in ("active", "disabled"):
+        raise ValueError(f"Invalid status '{status}'. Must be 'active' or 'disabled'.")
+    email = (email or "").strip().lower()
+
+    def _apply(users: Dict[str, Any]):
+        if email not in users:
+            raise ValueError(f"No account with email '{email}'.")
+        target_org = users[email].get("org_id", "default_org")
+        if org_id and target_org != org_id:
+            raise PermissionError("Cannot modify users from another organization.")
+        users[email]["status"] = status
+        return {
+            "id": users[email]["id"],
+            "email": email,
+            "role": users[email].get("role", "user"),
+            "org_id": target_org,
+            "status": status,
+        }
+
+    return _mutate_users(_apply)
+
+
 def list_users(org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     with _user_lock:
         users = list(_load().values())
@@ -403,6 +431,7 @@ def list_users(org_id: Optional[str] = None) -> List[Dict[str, Any]]:
             "email": u["email"],
             "role": u.get("role", "user"),
             "org_id": u.get("org_id", "default_org"),
+            "status": u.get("status", "active"),
             "created_at": u.get("created_at"),
         }
         for u in users

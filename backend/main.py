@@ -51,6 +51,8 @@ from backend.ingestion.audio_pipeline import transcribe as transcribe_audio
 from backend.observability import metrics as obs_metrics
 from backend.observability import resources
 from backend import logging_utils
+from backend import collections_store
+from backend.observability import audit_logger
 from backend.retrieval import late_interaction, search, vector_store
 
 app = FastAPI(title="Multimodal Offline RAG", version="3.0.0")
@@ -270,6 +272,7 @@ class QueryRequest(BaseModel):
     top_k: int = config.DEFAULT_TOP_K
     modality: str = "all"
     files: Optional[List[str]] = None
+    collection_id: Optional[str] = None
     provider: Optional[str] = None
     model: Optional[str] = None
     # Phase 3 (all optional; None = fall back to server-side config flags).
@@ -280,6 +283,26 @@ class QueryRequest(BaseModel):
     # Evaluation and other batch callers can request a response without
     # adding the exchange to the user's interactive chat history.
     persist_messages: bool = True
+
+
+class CreateCollectionRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    files: Optional[List[str]] = None
+    is_shared: bool = True
+
+
+class UpdateCollectionRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class AddCollectionDocumentsRequest(BaseModel):
+    files: List[str]
+
+
+class SetStatusRequest(BaseModel):
+    status: str
 
 
 class ProviderKeyRequest(BaseModel):
@@ -533,7 +556,39 @@ def admin_set_role(email: str, req: SetRoleRequest, admin: dict = Depends(requir
         raise HTTPException(400, str(exc))
     logging_utils.audit_log("admin_role_changed", user_id=admin["id"],
                             target_email=email, new_role=req.role)
+    audit_logger.record_audit("user_role_changed", user_id=admin["id"], email=admin.get("email", ""),
+                              org_id=admin.get("org_id", "default_org"), resource=email,
+                              details={"new_role": req.role})
     return result
+
+
+@app.post("/api/admin/users/{email}/status")
+def admin_set_status(email: str, req: SetStatusRequest, admin: dict = Depends(require_admin)):
+    org_id = admin.get("org_id", "default_org") if admin.get("role") != "super_admin" else None
+    try:
+        result = auth.set_status(email, req.status, org_id=org_id)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    audit_logger.record_audit("user_status_changed", user_id=admin["id"], email=admin.get("email", ""),
+                              org_id=admin.get("org_id", "default_org"), resource=email,
+                              details={"new_status": req.status})
+    return result
+
+
+@app.get("/api/admin/audit-logs")
+def admin_get_audit_logs(
+    limit: int = 50,
+    offset: int = 0,
+    action: Optional[str] = None,
+    user_email: Optional[str] = None,
+    admin: dict = Depends(require_admin),
+):
+    org_id = admin.get("org_id", "default_org") if admin.get("role") != "super_admin" else None
+    return audit_logger.query_audit_logs(
+        org_id=org_id, action=action, user_email=user_email, limit=limit, offset=offset
+    )
 
 
 @app.get("/api/admin/security-events")
@@ -706,7 +761,11 @@ def login(req: RegisterRequest, request: Request):
     except auth.RateLimitedError as exc:
         logging_utils.audit_log("login_rate_limited", ip=client_ip, email=req.email)
         raise HTTPException(429, str(exc))
-    user = auth.authenticate(req.email, req.password)
+    try:
+        user = auth.authenticate(req.email, req.password)
+    except PermissionError as exc:
+        logging_utils.audit_log("login_disabled_account", ip=client_ip, email=req.email)
+        raise HTTPException(403, str(exc))
     if not user:
         # Never log the attempted password (brief §23/§54) — email + IP
         # is enough to spot a brute-force pattern without ever persisting
@@ -925,12 +984,418 @@ def delete_file(filename: str, session_id: str, user: dict = Depends(get_user)):
     return {"status": "ok", "removed_chunks": removed, "files": file_list}
 
 
+# ------------------------------------------------------------------ Enterprise Document Management (Stage 5)
+@app.get("/api/documents")
+def list_all_documents(
+    search: Optional[str] = None,
+    modality: Optional[str] = None,
+    status: Optional[str] = None,
+    collection_id: Optional[str] = None,
+    user: dict = Depends(get_user),
+):
+    org_id = user.get("org_id", "default_org")
+    all_files = vector_store.list_files(session_id=None, user_id=user["id"], org_id=org_id)
+
+    # Get all collections for this user / org
+    user_cols = collections_store.list_collections(owner_id=user["id"], org_id=org_id, role=user.get("role"))
+    file_to_cols = {}
+    for c in user_cols:
+        for f in c.get("files", []):
+            file_to_cols.setdefault(f, []).append({"id": c["id"], "name": c["name"]})
+
+    user_sessions = session_store.list_sessions(owner_id=user["id"], org_id=org_id)
+
+    docs = []
+    for item in all_files:
+        fname = item["file"]
+        file_size = 0
+        last_modified = item.get("ingested_at", "")
+        found_session_id = None
+
+        for s in user_sessions:
+            s_dir = _session_dir(s["id"])
+            p = s_dir / fname
+            if p.exists():
+                found_session_id = s["id"]
+                try:
+                    stat = p.stat()
+                    file_size = stat.st_size
+                    last_modified = _dt.datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
+                except Exception:
+                    pass
+                break
+
+        matched_cols = file_to_cols.get(fname, [])
+        col_id = matched_cols[0]["id"] if matched_cols else None
+        col_name = matched_cols[0]["name"] if matched_cols else "Unassigned"
+
+        doc_record = {
+            "id": f"doc_{hashlib.md5(fname.encode()).hexdigest()[:10]}",
+            "filename": fname,
+            "modality": item.get("modality", "document"),
+            "file_size": file_size,
+            "upload_date": item.get("ingested_at", last_modified),
+            "last_modified": last_modified,
+            "status": "indexed",
+            "chunk_count": item.get("chunks", 0),
+            "owner": user.get("email", ""),
+            "owner_id": user["id"],
+            "session_id": found_session_id or (user_sessions[0]["id"] if user_sessions else "sess_default"),
+            "collection_id": col_id,
+            "collection_name": col_name,
+            "collections": matched_cols,
+        }
+
+        # Filtering
+        if search and search.lower() not in fname.lower():
+            continue
+        if modality and modality != "all" and item.get("modality", "").lower() != modality.lower():
+            continue
+        if collection_id and collection_id != "all":
+            if not any(c["id"] == collection_id for c in matched_cols):
+                continue
+        if status and status != "all" and doc_record["status"] != status:
+            continue
+
+        docs.append(doc_record)
+
+    return {"documents": docs, "total": len(docs)}
+
+
+@app.post("/api/documents/upload")
+async def upload_documents(
+    files: List[UploadFile] = File(...),
+    session_id: Optional[str] = Form(None),
+    collection_id: Optional[str] = Form(None),
+    mode: str = Form("max_quality"),
+    user: dict = Depends(get_user),
+):
+    org_id = user.get("org_id", "default_org")
+    effective_session = session_id or "sess_default_library"
+    session_store.ensure_exists(effective_session, user["id"], org_id=org_id)
+    _check_ingest_rate_limit(user["id"])
+    _validate_uploads(files)
+
+    results = []
+    for up in files:
+        try:
+            path = _save_upload(up, effective_session)
+            res = ingest_mod.ingest_file(str(path), session_id=effective_session, user_id=user["id"], mode=mode, org_id=org_id)
+            results.append(res)
+            if collection_id and collection_id != "none":
+                try:
+                    collections_store.add_file_to_collection(collection_id, up.filename, org_id=org_id)
+                except Exception:
+                    pass
+            audit_logger.record_audit(
+                action="document_uploaded",
+                user_id=user["id"],
+                email=user.get("email", ""),
+                org_id=org_id,
+                resource=up.filename,
+                outcome="success",
+                details={"chunks": res.get("chunks"), "collection_id": collection_id, "size": path.stat().st_size if path.exists() else 0},
+            )
+        except Exception as exc:
+            results.append({"file": up.filename, "error": str(exc)})
+            audit_logger.record_audit(
+                action="document_upload_failed",
+                user_id=user["id"],
+                email=user.get("email", ""),
+                org_id=org_id,
+                resource=up.filename,
+                outcome="failed",
+                details={"error": str(exc)},
+            )
+
+    _invalidate_user_cache(user["id"])
+    return {"status": "ok", "results": results}
+
+
+@app.delete("/api/documents/{filename}")
+def delete_document(
+    filename: str,
+    user: dict = Depends(get_user),
+):
+    org_id = user.get("org_id", "default_org")
+    clean_name = Path(filename).name
+
+    # 1. Remove chunks from ChromaDB and SQLite FTS5
+    removed = vector_store.delete_file(clean_name)
+
+    # 2. Delete physical files from all user's sessions
+    user_sessions = session_store.list_sessions(owner_id=user["id"], org_id=org_id)
+    deleted_files = 0
+    for s in user_sessions:
+        p = _session_dir(s["id"]) / clean_name
+        if p.exists():
+            try:
+                p.unlink()
+                deleted_files += 1
+            except Exception:
+                pass
+        remaining = vector_store.list_files(session_id=s["id"], user_id=user["id"], org_id=org_id)
+        session_store.set_files(s["id"], remaining)
+
+    # 3. Remove from any collections
+    cols = collections_store.list_collections(owner_id=user["id"], org_id=org_id)
+    for c in cols:
+        if clean_name in c.get("files", []):
+            try:
+                collections_store.remove_file_from_collection(c["id"], clean_name, org_id=org_id)
+            except Exception:
+                pass
+
+    _invalidate_user_cache(user["id"])
+    audit_logger.record_audit(
+        action="document_deleted",
+        user_id=user["id"],
+        email=user.get("email", ""),
+        org_id=org_id,
+        resource=clean_name,
+        outcome="success",
+        details={"removed_chunks": removed, "deleted_copies": deleted_files},
+    )
+    return {"status": "ok", "filename": clean_name, "removed_chunks": removed}
+
+
+@app.post("/api/documents/{filename}/reprocess")
+def reprocess_document(
+    filename: str,
+    user: dict = Depends(get_user),
+):
+    org_id = user.get("org_id", "default_org")
+    clean_name = Path(filename).name
+
+    user_sessions = session_store.list_sessions(owner_id=user["id"], org_id=org_id)
+    target_path = None
+    target_sid = None
+    for s in user_sessions:
+        p = _session_dir(s["id"]) / clean_name
+        if p.exists():
+            target_path = p
+            target_sid = s["id"]
+            break
+
+    if not target_path:
+        raise HTTPException(404, f"File '{clean_name}' not found on disk.")
+
+    res = ingest_mod.ingest_file(str(target_path), session_id=target_sid, user_id=user["id"], mode="max_quality", org_id=org_id)
+    _invalidate_user_cache(user["id"])
+    audit_logger.record_audit(
+        action="document_reprocessed",
+        user_id=user["id"],
+        email=user.get("email", ""),
+        org_id=org_id,
+        resource=clean_name,
+        outcome="success",
+        details={"chunks": res.get("chunks"), "session_id": target_sid},
+    )
+    return {"status": "ok", "result": res}
+
+
+@app.get("/api/documents/{session_id}/{filename}/download")
+def download_document(
+    session_id: str,
+    filename: str,
+    user: dict = Depends(get_user),
+):
+    _require_owner(session_id, user)
+    p = _safe_join(_session_dir(session_id), filename)
+    if not p.is_file():
+        raise HTTPException(404, "File not found.")
+    audit_logger.record_audit(
+        action="document_downloaded",
+        user_id=user["id"],
+        email=user.get("email", ""),
+        org_id=user.get("org_id", "default_org"),
+        resource=filename,
+        outcome="success",
+    )
+    return FileResponse(str(p), filename=Path(filename).name, media_type="application/octet-stream")
+
+
+# ------------------------------------------------------------------ Enterprise Collections Management (Stage 5)
+@app.get("/api/collections")
+def list_collections_endpoint(user: dict = Depends(get_user)):
+    org_id = user.get("org_id", "default_org")
+    cols = collections_store.list_collections(owner_id=user["id"], org_id=org_id, role=user.get("role"))
+    file_chunks = {item["file"]: item.get("chunks", 0) for item in vector_store.list_files(user_id=user["id"], org_id=org_id)}
+    for c in cols:
+        c["total_chunks"] = sum(file_chunks.get(f, 0) for f in c.get("files", []))
+    return {"collections": cols}
+
+
+@app.post("/api/collections")
+def create_collection_endpoint(req: CreateCollectionRequest, user: dict = Depends(get_user)):
+    org_id = user.get("org_id", "default_org")
+    try:
+        col = collections_store.create_collection(
+            name=req.name,
+            description=req.description or "",
+            owner_id=user["id"],
+            org_id=org_id,
+            files=req.files or [],
+            is_shared=req.is_shared,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    audit_logger.record_audit(
+        action="collection_created",
+        user_id=user["id"],
+        email=user.get("email", ""),
+        org_id=org_id,
+        resource=col["name"],
+        outcome="success",
+        details={"collection_id": col["id"], "initial_files": len(req.files or [])},
+    )
+    return col
+
+
+@app.get("/api/collections/{col_id}")
+def get_collection_endpoint(col_id: str, user: dict = Depends(get_user)):
+    org_id = user.get("org_id", "default_org")
+    c = collections_store.get_collection(col_id, org_id=org_id)
+    if not c:
+        raise HTTPException(404, "Collection not found.")
+    file_chunks = {item["file"]: item.get("chunks", 0) for item in vector_store.list_files(user_id=user["id"], org_id=org_id)}
+    c["total_chunks"] = sum(file_chunks.get(f, 0) for f in c.get("files", []))
+    return c
+
+
+@app.patch("/api/collections/{col_id}")
+def update_collection_endpoint(col_id: str, req: UpdateCollectionRequest, user: dict = Depends(get_user)):
+    org_id = user.get("org_id", "default_org")
+    c = collections_store.update_collection(col_id, name=req.name, description=req.description, org_id=org_id)
+    if not c:
+        raise HTTPException(404, "Collection not found.")
+    audit_logger.record_audit(
+        action="collection_updated",
+        user_id=user["id"],
+        email=user.get("email", ""),
+        org_id=org_id,
+        resource=c["name"],
+        outcome="success",
+        details={"collection_id": col_id},
+    )
+    return c
+
+
+@app.delete("/api/collections/{col_id}")
+def delete_collection_endpoint(col_id: str, user: dict = Depends(get_user)):
+    org_id = user.get("org_id", "default_org")
+    col = collections_store.get_collection(col_id, org_id=org_id)
+    if not col:
+        raise HTTPException(404, "Collection not found.")
+    collections_store.delete_collection(col_id, org_id=org_id)
+    audit_logger.record_audit(
+        action="collection_deleted",
+        user_id=user["id"],
+        email=user.get("email", ""),
+        org_id=org_id,
+        resource=col.get("name", col_id),
+        outcome="success",
+        details={"collection_id": col_id},
+    )
+    return {"status": "ok", "collection_id": col_id}
+
+
+@app.post("/api/collections/{col_id}/documents")
+def add_documents_to_collection_endpoint(col_id: str, req: AddCollectionDocumentsRequest, user: dict = Depends(get_user)):
+    org_id = user.get("org_id", "default_org")
+    updated = None
+    for f in req.files:
+        updated = collections_store.add_file_to_collection(col_id, f, org_id=org_id)
+    if not updated:
+        raise HTTPException(404, "Collection not found.")
+    audit_logger.record_audit(
+        action="collection_documents_added",
+        user_id=user["id"],
+        email=user.get("email", ""),
+        org_id=org_id,
+        resource=col_id,
+        outcome="success",
+        details={"added_count": len(req.files)},
+    )
+    return updated
+
+
+@app.delete("/api/collections/{col_id}/documents/{filename}")
+def remove_document_from_collection_endpoint(col_id: str, filename: str, user: dict = Depends(get_user)):
+    org_id = user.get("org_id", "default_org")
+    updated = collections_store.remove_file_from_collection(col_id, filename, org_id=org_id)
+    if not updated:
+        raise HTTPException(404, "Collection not found.")
+    audit_logger.record_audit(
+        action="collection_document_removed",
+        user_id=user["id"],
+        email=user.get("email", ""),
+        org_id=org_id,
+        resource=filename,
+        outcome="success",
+        details={"collection_id": col_id},
+    )
+    return updated
+
+
+# ------------------------------------------------------------------ Model Settings & AI Configuration (Stage 5)
+@app.get("/api/models/ollama/status")
+def get_ollama_status(user: dict = Depends(get_user)):
+    import urllib.request
+    t0 = time.perf_counter()
+    status = "offline"
+    models = []
+    latency_ms = None
+    error_msg = None
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "MultimodalRagBackend/3.0"})
+        with urllib.request.urlopen(req, timeout=2.5) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                models = [
+                    {
+                        "name": m.get("name"),
+                        "size": m.get("size", 0),
+                        "modified_at": m.get("modified_at", ""),
+                        "digest": m.get("digest", "")[:12],
+                    }
+                    for m in data.get("models", [])
+                ]
+                status = "online"
+                latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+    except Exception as exc:
+        error_msg = str(exc)
+
+    return {
+        "status": status,
+        "latency_ms": latency_ms,
+        "active_model": config.LLM_MODEL,
+        "configured_provider": "ollama",
+        "models": models,
+        "error": error_msg,
+    }
+
+
+@app.get("/api/models/embedding")
+def get_embedding_info(user: dict = Depends(get_user)):
+    return {
+        "model": config.TEXT_EMBED_MODEL,
+        "dimension": config.TEXT_EMBED_DIM,
+        "device": config.DEVICE,
+        "batch_size": config.EMBED_BATCH_SIZE,
+        "warmup": config.WARMUP_ON_STARTUP,
+        "text_collection": config.TEXT_COLLECTION,
+        "image_collection": config.IMAGE_COLLECTION,
+        "clip_model": config.CLIP_MODEL,
+        "clip_dimension": config.CLIP_EMBED_DIM,
+    }
+
+
 # ------------------------------------------------------------------ querying
 @app.post("/api/query")
 def query(req: QueryRequest, user: dict = Depends(get_user)):
     if not req.query.strip():
         raise HTTPException(400, "Query is empty.")
-    session_store.ensure_exists(req.session_id, user["id"])
     org_id = user.get("org_id", "default_org")
     session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
@@ -946,12 +1411,23 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
     resolved_model = _resolve_model(req.model, resolved_provider, user["id"])
     history = _history_for(req.session_id)
 
+    target_files = req.files
+    if req.collection_id:
+        col_files = collections_store.get_collection_files(req.collection_id, org_id=org_id)
+        if target_files:
+            target_files = [f for f in target_files if f in col_files]
+        else:
+            target_files = col_files
+        if not target_files:
+            target_files = ["__empty_collection_no_match__"]
+
     payload = {
         "session_id": req.session_id,
         "query": req.query,
         "top_k": req.top_k,
         "modality": req.modality,
-        "files": req.files or [],
+        "files": target_files or [],
+        "collection_id": req.collection_id,
         "route": "query",
         "provider": resolved_provider,
         "model": resolved_model,
@@ -969,7 +1445,7 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
     if use_multihop:
         result = multihop_mod.multihop_answer(
             req.query, top_k=req.top_k, modality=req.modality,
-            session_id=req.session_id, files=req.files, user_id=user["id"],
+            session_id=req.session_id, files=target_files, user_id=user["id"],
             history=history, provider=resolved_provider,
             session_dir=_session_dir(req.session_id),
             org_id=org_id,
@@ -996,7 +1472,7 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
             top_k=req.top_k,
             modality=req.modality,
             session_id=req.session_id,
-            files=req.files,
+            files=target_files,
             user_id=user["id"],
             org_id=org_id,
         )
@@ -1081,9 +1557,19 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
             search_text, provider=resolved_provider, user_id=user["id"])
 
     t_ret_start = time.perf_counter()
+    target_files = req.files
+    if req.collection_id:
+        col_files = collections_store.get_collection_files(req.collection_id, org_id=org_id)
+        if target_files:
+            target_files = [f for f in target_files if f in col_files]
+        else:
+            target_files = col_files
+        if not target_files:
+            target_files = ["__empty_collection_no_match__"]
+
     hits = search.text_query(
         search_text, top_k=req.top_k, modality=req.modality,
-        session_id=req.session_id, files=req.files, user_id=user["id"],
+        session_id=req.session_id, files=target_files, user_id=user["id"],
         org_id=org_id,
     )
     if _flag(req.colbert, config.COLBERT_ENABLED):
@@ -1218,11 +1704,10 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
 def extract(req: QueryRequest, user: dict = Depends(get_user)):
     if not req.query.strip():
         raise HTTPException(400, "Query is empty.")
-    session_store.ensure_exists(req.session_id, user["id"])
+    org_id = user.get("org_id", "default_org")
+    session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
-
-    org_id = user.get("org_id", "default_org")
     resolved_provider = _resolve_provider(req.provider, user["id"])
     history = _history_for(req.session_id)
     payload = {
@@ -1437,7 +1922,8 @@ async def query_audio(session_id: str = Form(...), file: UploadFile = File(...),
 @app.post("/api/transcribe")
 async def transcribe(session_id: str = Form(...), file: UploadFile = File(...),
                      user: dict = Depends(get_user)):
-    session_store.ensure_exists(session_id, user["id"])
+    org_id = user.get("org_id", "default_org")
+    session_store.ensure_exists(session_id, user["id"], org_id=org_id)
     _require_owner(session_id, user)
     path = _save_upload(file, session_id)
     segments, lang = _transcribe_or_400(path)

@@ -119,10 +119,11 @@ export const deleteFile = (sessionId: string, name: string) =>
 // ---- querying --------------------------------------------------------------
 export function query(sessionId: string, q: string, topK: number,
                       modality: ModalityFilter, files: string[],
-                      provider?: ProviderName): Promise<QueryResponse> {
+                      provider?: ProviderName, collectionId?: string): Promise<QueryResponse> {
   return request<QueryResponse>('/api/query', json({
     session_id: sessionId, query: q, top_k: topK, modality,
     files: files.length ? files : null,
+    collection_id: collectionId || null,
     provider: provider ?? null,
   }))
 }
@@ -170,6 +171,7 @@ export async function queryStream(
   provider: ProviderName | undefined,
   callbacks: QueryStreamCallbacks,
   signal?: AbortSignal,
+  collectionId?: string,
 ): Promise<void> {
   const headers = new Headers({ 'Content-Type': 'application/json' })
   if (TOKEN) headers.set('Authorization', `Bearer ${TOKEN}`)
@@ -182,7 +184,9 @@ export async function queryStream(
       signal,
       body: JSON.stringify({
         session_id: sessionId, query: q, top_k: topK, modality,
-        files: files.length ? files : null, provider: provider ?? null,
+        files: files.length ? files : null,
+        collection_id: collectionId || null,
+        provider: provider ?? null,
       }),
     })
   } catch (err) {
@@ -342,3 +346,88 @@ export const adminSecurityEvents = (limit = 50, offset = 0) =>
   request<{ events: import('./types').SecurityEventRecord[]; total: number }>(
     `/api/admin/security-events?limit=${limit}&offset=${offset}`
   )
+
+export const adminSetUserStatus = (email: string, status: 'active' | 'disabled') =>
+  request<{ status: string; email: string; user_status: string }>(
+    `/api/admin/users/${encodeURIComponent(email)}/status`,
+    json({ status })
+  )
+
+export const adminGetAuditLogs = (params?: { limit?: number; offset?: number; action?: string; user_email?: string }) => {
+  const query = new URLSearchParams()
+  if (params?.limit) query.set('limit', String(params.limit))
+  if (params?.offset) query.set('offset', String(params.offset))
+  if (params?.action) query.set('action', params.action)
+  if (params?.user_email) query.set('user_email', params.user_email)
+  const qs = query.toString()
+  return request<{ logs: import('./types').AuditLogRecord[]; total: number }>(
+    `/api/admin/audit-logs${qs ? '?' + qs : ''}`
+  )
+}
+
+// ---- enterprise documents --------------------------------------------------
+export const listDocuments = () =>
+  request<{ documents: import('./types').ManagedDocument[]; total: number }>('/api/documents')
+
+export async function uploadDocument(file: File, collectionId?: string): Promise<{ status: string; filename: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  if (collectionId) form.append('collection_id', collectionId)
+  return request<{ status: string; filename: string }>('/api/documents/upload', {
+    method: 'POST',
+    body: form,
+  })
+}
+
+export const deleteDocument = (filename: string) =>
+  request<{ status: string; deleted: string }>(
+    `/api/documents/${encodeURIComponent(filename)}`,
+    { method: 'DELETE' }
+  )
+
+export const reprocessDocument = (filename: string) =>
+  request<{ status: string; filename: string; chunks: number }>(
+    `/api/documents/${encodeURIComponent(filename)}/reprocess`,
+    { method: 'POST' }
+  )
+
+// ---- enterprise collections ------------------------------------------------
+export const listCollections = () =>
+  request<{ collections: import('./types').ManagedCollection[]; total: number }>('/api/collections')
+
+export const createCollection = (data: { name: string; description?: string; files?: string[]; is_shared?: boolean }) =>
+  request<import('./types').ManagedCollection>('/api/collections', json(data))
+
+export const getCollection = (colId: string) =>
+  request<import('./types').ManagedCollection>(`/api/collections/${encodeURIComponent(colId)}`)
+
+export const updateCollection = (colId: string, data: { name?: string; description?: string }) =>
+  request<import('./types').ManagedCollection>(`/api/collections/${encodeURIComponent(colId)}`, {
+    method: 'PATCH',
+    ...json(data),
+  })
+
+export const deleteCollection = (colId: string) =>
+  request<{ status: string; deleted_id: string }>(
+    `/api/collections/${encodeURIComponent(colId)}`,
+    { method: 'DELETE' }
+  )
+
+export const addDocumentsToCollection = (colId: string, files: string[]) =>
+  request<import('./types').ManagedCollection>(
+    `/api/collections/${encodeURIComponent(colId)}/documents`,
+    json({ files })
+  )
+
+export const removeDocumentFromCollection = (colId: string, filename: string) =>
+  request<import('./types').ManagedCollection>(
+    `/api/collections/${encodeURIComponent(colId)}/documents/${encodeURIComponent(filename)}`,
+    { method: 'DELETE' }
+  )
+
+// ---- model settings & telemetry --------------------------------------------
+export const getOllamaStatus = () =>
+  request<import('./types').OllamaDaemonStatus>('/api/models/ollama/status')
+
+export const getEmbeddingMetadata = () =>
+  request<import('./types').EmbeddingMetadata>('/api/models/embedding')

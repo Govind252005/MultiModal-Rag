@@ -11,6 +11,7 @@ import {
   Loader2,
   StopCircle,
   ShieldCheck,
+  Layers,
 } from 'lucide-react'
 import type { LibraryFile, Scope } from '../types'
 import ScopePanel from './ScopePanel'
@@ -315,7 +316,23 @@ export default function Composer({
       <div className="max-w-4xl mx-auto space-y-3">
         {/* Scope and Top-K Header Strip */}
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <ScopePanel files={files} scope={scope} setScope={setScope} />
+          <div className="flex items-center gap-2">
+            <ScopePanel files={files} scope={scope} setScope={setScope} />
+            {scope.collection_name && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 text-xs font-medium dark:border-brand-900/60 dark:bg-brand-950/40 dark:text-brand-300">
+                <Layers className="h-3.5 w-3.5 text-brand-600 dark:text-brand-400" />
+                Collection: {scope.collection_name}
+                <button
+                  type="button"
+                  onClick={() => setScope({ ...scope, collection_id: undefined, collection_name: undefined })}
+                  className="ml-0.5 rounded p-0.5 hover:bg-brand-100 dark:hover:bg-brand-900/60"
+                  title="Clear collection scope"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+          </div>
 
           <label className="flex items-center gap-1.5 rounded-lg border border-surface-200 bg-surface-50 py-1 pl-2.5 pr-2 text-xs font-medium text-surface-600 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-300">
             <span>top-k</span>

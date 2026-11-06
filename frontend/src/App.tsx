@@ -29,7 +29,10 @@ import SourcesPanel from "./components/SourcesPanel";
 import LibraryPanel from "./components/LibraryPanel";
 import DocumentViewer from "./components/DocumentViewer";
 import Toast from "./components/Toast";
-import ProviderPanel from "./components/ProviderPanel";
+import { DocumentManagement } from "./components/DocumentManagement";
+import { CollectionManagement } from "./components/CollectionManagement";
+import { ModelSettingsView } from "./components/ModelSettingsView";
+import { EnterpriseAdminView } from "./components/EnterpriseAdminView";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -404,7 +407,8 @@ export default function App() {
             throw err;
           },
         },
-        abortCtrl.signal
+        abortCtrl.signal,
+        scope.collection_id
       );
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
@@ -416,7 +420,7 @@ export default function App() {
         setError((err as Error).message);
       } else {
         try {
-          const res = await api.query(sid, text, topK, scope.modality, scope.files, provider);
+          const res = await api.query(sid, text, topK, scope.modality, scope.files, provider, scope.collection_id);
           updateMessage(aId, {
             text: res.answer,
             citations: res.citations,
@@ -719,103 +723,73 @@ export default function App() {
       )}
 
       {view === 'settings' && (
-        <div className="p-6 max-w-4xl mx-auto space-y-6">
+        <ModelSettingsView
+          onProviderChanged={(newProvider) => {
+            setProvider(newProvider);
+            loadHealth();
+          }}
+        />
+      )}
+
+      {view === 'documents' && (
+        <DocumentManagement
+          onOpenViewer={(_sessionId, filename) => {
+            setActiveDocument(filename);
+            setActiveCitation(null);
+            setViewerOpen(true);
+            setView('chat');
+          }}
+          onChatWithFiles={(targetFiles) => {
+            newChat();
+            setScope({ modality: 'all', files: targetFiles });
+            setView('chat');
+          }}
+        />
+      )}
+
+      {view === 'collections' && (
+        <CollectionManagement
+          onChatWithCollection={(collection) => {
+            newChat();
+            setScope({
+              modality: 'all',
+              files: collection.files || [],
+              collection_id: collection.id,
+              collection_name: collection.name,
+            });
+            setView('chat');
+          }}
+          onOpenViewer={(_sessionId, filename) => {
+            setActiveDocument(filename);
+            setActiveCitation(null);
+            setViewerOpen(true);
+            setView('chat');
+          }}
+        />
+      )}
+
+      {view === 'search' && (
+        <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto space-y-6">
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
-              Model & Provider Settings
+            <h2 className="text-2xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
+              Cross-Modal Semantic Search
             </h2>
-            <p className="text-xs text-surface-500 mt-1">
-              Configure local Ollama execution or cloud model credentials
+            <p className="text-sm text-surface-500 mt-1">
+              Search passages, image captions, and multilingual transcripts across all enterprise collections.
             </p>
           </div>
-          <ProviderPanel
-            provider={provider}
-            onSelect={selectProvider}
-            onError={(msg) => setError(msg)}
-            collapsed={false}
-            showHeading={true}
+          <DocumentManagement
+            onOpenViewer={(_sessionId, filename) => {
+              setActiveDocument(filename);
+              setActiveCitation(null);
+              setViewerOpen(true);
+              setView('chat');
+            }}
           />
         </div>
       )}
 
-      {view === 'documents' && (
-        <div className="p-6 max-w-5xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
-                Document Management
-              </h2>
-              <p className="text-xs text-surface-500 mt-1">
-                Manage files, chunks, and multimodal knowledge records in current session
-              </p>
-            </div>
-            <button
-              onClick={() => setLibraryOpen(true)}
-              className="rounded-lg bg-brand-600 text-white px-4 py-2 text-xs font-medium hover:bg-brand-700 transition-colors shadow-sm"
-            >
-              Upload New Documents
-            </button>
-          </div>
-          <div className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 overflow-hidden shadow-subtle">
-            {files.length === 0 ? (
-              <div className="p-10 text-center text-xs text-surface-400">
-                No documents found in current session. Click "Upload New Documents" to index files.
-              </div>
-            ) : (
-              <table className="w-full text-left text-xs">
-                <thead className="bg-surface-50 dark:bg-surface-800/60 text-surface-500 border-b border-surface-200 dark:border-surface-800">
-                  <tr>
-                    <th className="p-3.5">Filename</th>
-                    <th className="p-3.5">Modality</th>
-                    <th className="p-3.5">Indexed Chunks</th>
-                    <th className="p-3.5">Ingested Date</th>
-                    <th className="p-3.5 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
-                  {files.map((f) => (
-                    <tr key={f.file} className="hover:bg-surface-50/50 dark:hover:bg-surface-800/30">
-                      <td className="p-3.5 font-medium text-surface-800 dark:text-surface-200">{f.file}</td>
-                      <td className="p-3.5 capitalize">{f.modality}</td>
-                      <td className="p-3.5">{f.chunks} chunks</td>
-                      <td className="p-3.5 text-surface-400">{f.ingested_at || 'Just now'}</td>
-                      <td className="p-3.5 text-right">
-                        <button
-                          onClick={() => deleteFile(f.file)}
-                          className="text-rose-600 hover:text-rose-700 font-medium"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
-
-      {view === 'admin' && (
-        <div className="p-6 max-w-5xl mx-auto space-y-6">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
-              Enterprise Administration
-            </h2>
-            <p className="text-xs text-surface-500 mt-1">
-              Tenant isolation, user role management, and audit verification
-            </p>
-          </div>
-          <div className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-6 shadow-subtle space-y-4">
-            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-              <span className="font-semibold text-sm">Role-Based Access Control Enforced</span>
-            </div>
-            <p className="text-xs text-surface-600 dark:text-surface-400">
-              Your account has administrator privileges (<span className="font-mono text-brand-600 font-semibold">{user.role}</span>) for tenant organization <span className="font-mono text-brand-600 font-semibold">{user.org_id || 'default_org'}</span>.
-            </p>
-          </div>
-        </div>
-      )}
+      {view === 'admin' && <EnterpriseAdminView />}
 
       {citations.length > 0 && view === 'chat' && (
         <button

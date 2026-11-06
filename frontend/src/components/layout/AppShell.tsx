@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   MessageSquareText,
   FolderKanban,
+  Layers,
   Search,
   ShieldCheck,
   Cpu,
@@ -49,6 +50,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     { view: 'dashboard' as AppView, label: 'Dashboard', icon: LayoutDashboard, section: 'Workspace' },
     { view: 'chat' as AppView, label: 'AI Chat', icon: MessageSquareText, section: 'Workspace' },
     { view: 'documents' as AppView, label: 'Documents', icon: FolderKanban, section: 'Workspace' },
+    { view: 'collections' as AppView, label: 'Collections', icon: Layers, section: 'Workspace' },
     { view: 'search' as AppView, label: 'Search', icon: Search, section: 'Workspace' },
     { view: 'settings' as AppView, label: 'Models & Settings', icon: Cpu, section: 'Preferences' },
   ]
@@ -214,6 +216,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           <div className="flex items-center gap-3">
             <button
               type="button"
+              aria-label="Open navigation menu"
               onClick={() => setMobileOpen(true)}
               className="rounded-lg p-1.5 text-surface-500 hover:bg-surface-100 dark:hover:bg-surface-800 lg:hidden"
             >

@@ -156,6 +156,7 @@ export type AppView =
   | 'dashboard'
   | 'chat'
   | 'documents'
+  | 'collections'
   | 'search'
   | 'settings'
   | 'admin'
@@ -165,8 +166,60 @@ export interface AdminUserRecord {
   email: string
   role: string
   org_id: string
+  status?: 'active' | 'disabled'
   created_at?: string
   disabled?: boolean
+}
+
+export interface AuditLogRecord {
+  id: string
+  timestamp: string
+  action: string
+  user_email: string
+  user_id: string
+  org_id: string
+  details?: Record<string, any>
+  ip?: string
+}
+
+export interface ManagedDocument {
+  filename: string
+  modality: string
+  size_bytes: number
+  page_count: number
+  chunk_count: number
+  status: 'indexed' | 'pending' | 'processing' | 'failed' | string
+  created_at: string
+  collections: string[]
+  session_id: string
+}
+
+export interface ManagedCollection {
+  id: string
+  name: string
+  description: string
+  owner_id: string
+  org_id: string
+  files: string[]
+  file_count: number
+  is_shared: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface OllamaDaemonStatus {
+  status: string
+  is_online: boolean
+  latency_ms: number
+  default_model: string
+  models: Array<{ name: string; size?: number; modified_at?: string }>
+}
+
+export interface EmbeddingMetadata {
+  dense_model: string
+  dense_dimension: number
+  clip_model: string
+  clip_dimension: number
 }
 
 export interface SecurityEventRecord {
@@ -231,6 +284,8 @@ export interface ChatMessage {
 export interface Scope {
   modality: ModalityFilter
   files: string[]
+  collection_id?: string
+  collection_name?: string
 }
 
 // ---- Providers ------------------------------------------------------------
