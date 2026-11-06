@@ -42,6 +42,9 @@ Write-Host "[4/4] Starting FastAPI production server on http://127.0.0.1:8000...
 $proc = Start-Process -FilePath $PythonExe -ArgumentList "-m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4" -PassThru -WindowStyle Normal
 
 # Save PID for graceful shutdown
+if (-not (Test-Path "$RootDir\storage")) {
+    New-Item -ItemType Directory -Path "$RootDir\storage" -Force | Out-Null
+}
 $proc.Id | Out-File -FilePath "$RootDir\storage\rag_server.pid" -Encoding ascii
 
 Write-Host "`n✓ System successfully launched!" -ForegroundColor Green
