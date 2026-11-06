@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   Layers,
 } from 'lucide-react'
-import type { LibraryFile, Scope } from '../types'
+import type { LibraryFile, Scope, ActiveProviderResponse } from '../types'
 import ScopePanel from './ScopePanel'
 
 export interface StagedAttachment {
@@ -39,6 +39,7 @@ export interface ComposerProps {
   files: LibraryFile[]
   topK: number
   setTopK: (n: number) => void
+  activeProvider?: ActiveProviderResponse | null
 }
 
 const SUPPORTED_DOCS = '.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.txt,.csv,.md,.json,.log'
@@ -59,6 +60,7 @@ export default function Composer({
   files,
   topK,
   setTopK,
+  activeProvider,
 }: ComposerProps) {
   const [input, setInput] = useState('')
   const [stagedFiles, setStagedFiles] = useState<StagedAttachment[]>([])
@@ -454,6 +456,19 @@ export default function Composer({
                   Real-time dictation text streams through your browser vendor's recognition engine (Google/Apple cloud). Once you click "Done Recording", the saved audio file is processed 100% locally and privately by on-premises Whisper with zero cloud egress.
                 </p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cloud Generation Privacy Disclosure Banner */}
+        {activeProvider?.mode === 'cloud' && (
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200 shadow-2xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="flex h-2 w-2 rounded-full bg-sky-500 animate-pulse shrink-0" />
+              <p className="truncate text-[11px]">
+                <span className="font-semibold">Cloud Generation Active:</span> Using{' '}
+                <span className="font-mono font-bold uppercase">{activeProvider.provider}</span> ({activeProvider.model}). Prompts & top-{topK} retrieved passages will be transmitted via encrypted TLS for answer generation. Document storage and vector search remain 100% on-premises.
+              </p>
             </div>
           </div>
         )}

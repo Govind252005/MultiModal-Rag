@@ -664,6 +664,7 @@ export default function App() {
                   files={files}
                   topK={topK}
                   setTopK={setTopK}
+                  activeProvider={activeProviderInfo}
                 />
               </div>
 

@@ -139,6 +139,8 @@ def update_collection(
     name: Optional[str] = None,
     description: Optional[str] = None,
     org_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
+    role: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     def _apply(cols: Dict[str, Any]):
         c = cols.get(col_id)
@@ -146,6 +148,8 @@ def update_collection(
             return None
         if org_id and (c.get("org_id") or "default_org").strip().lower() != org_id.strip().lower():
             raise PermissionError("Access denied: collection belongs to a different organization.")
+        if role != "admin" and owner_id and c.get("owner_id") and c.get("owner_id") != owner_id:
+            raise PermissionError("Access denied: collection belongs to another user.")
 
         if name is not None and name.strip():
             c["name"] = name.strip()
@@ -157,13 +161,20 @@ def update_collection(
     return _mutate(_apply)
 
 
-def delete_collection(col_id: str, org_id: Optional[str] = None) -> bool:
+def delete_collection(
+    col_id: str,
+    org_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
+    role: Optional[str] = None,
+) -> bool:
     def _apply(cols: Dict[str, Any]):
         c = cols.get(col_id)
         if not c:
             return False
         if org_id and (c.get("org_id") or "default_org").strip().lower() != org_id.strip().lower():
             raise PermissionError("Access denied: collection belongs to a different organization.")
+        if role != "admin" and owner_id and c.get("owner_id") and c.get("owner_id") != owner_id:
+            raise PermissionError("Access denied: collection belongs to another user.")
         del cols[col_id]
         return True
 

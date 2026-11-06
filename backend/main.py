@@ -1318,8 +1318,16 @@ def get_collection_endpoint(col_id: str, user: dict = Depends(get_user)):
 @app.patch("/api/collections/{col_id}")
 def update_collection_endpoint(col_id: str, req: UpdateCollectionRequest, user: dict = Depends(get_user)):
     org_id = user.get("org_id", "default_org")
+    role = user.get("role", "user")
     try:
-        c = collections_store.update_collection(col_id, name=req.name, description=req.description, org_id=org_id)
+        c = collections_store.update_collection(
+            col_id,
+            name=req.name,
+            description=req.description,
+            org_id=org_id,
+            owner_id=user["id"],
+            role=role,
+        )
     except (PermissionError, ValueError):
         raise HTTPException(404, "Collection not found.")
     if not c:
@@ -1339,11 +1347,17 @@ def update_collection_endpoint(col_id: str, req: UpdateCollectionRequest, user: 
 @app.delete("/api/collections/{col_id}")
 def delete_collection_endpoint(col_id: str, user: dict = Depends(get_user)):
     org_id = user.get("org_id", "default_org")
+    role = user.get("role", "user")
     try:
         col = collections_store.get_collection(col_id, org_id=org_id)
         if not col:
             raise HTTPException(404, "Collection not found.")
-        collections_store.delete_collection(col_id, org_id=org_id)
+        collections_store.delete_collection(
+            col_id,
+            org_id=org_id,
+            owner_id=user["id"],
+            role=role,
+        )
     except (PermissionError, ValueError):
         raise HTTPException(404, "Collection not found.")
     audit_logger.record_audit(

@@ -22,7 +22,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("backup_scheduler")
 
-RETENTION_DAYS = 7
+import os
+
+RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "7"))
 
 
 def run_backup():
