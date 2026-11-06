@@ -316,7 +316,7 @@ test.describe('Stage 3 — Premium Chat Interface & Unified Staged Composer', ()
 
     // Wait for staged card and transcript review preview
     await expect(page.getByText('meeting_notes.mp3')).toBeVisible()
-    await expect(page.getByText('Explain the third quarter revenue trends from the audit report.')).toBeVisible()
+    await expect(page.getByText('Explain the third quarter revenue trends from the audit report.').first()).toBeVisible()
 
     // Click explicit Send
     await page.getByTitle('Send message (Enter)').click()

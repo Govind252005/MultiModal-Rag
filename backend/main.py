@@ -1448,10 +1448,26 @@ async def transcribe(session_id: str = Form(...), file: UploadFile = File(...),
 @app.get("/api/source/{doc_id}")
 def source(doc_id: str, user: dict = Depends(get_user)):
     item = vector_store.get_by_id(doc_id)
-    if not item or item.get("metadata", {}).get("user_id") != user["id"]:
+    if not item:
         raise HTTPException(404, "Source not found.")
-    m = item["metadata"]
+    m = item.get("metadata", {}) or {}
+    
+    # Enforce strict tenant isolation and ownership
+    user_id = user["id"]
+    org_id = user.get("org_id", "default_org")
+    item_user_id = m.get("user_id")
+    item_org_id = m.get("org_id")
+
+    if item_org_id and item_org_id != org_id:
+        raise HTTPException(404, "Source not found.")
+    if item_user_id and item_user_id != user_id and user.get("role") != "admin":
+        if not (item_org_id and item_org_id == org_id):
+            raise HTTPException(404, "Source not found.")
+
     sid, fname = m.get("session_id"), m.get("file")
+    if sid:
+        _require_owner(sid, user)
+
     # Embedded images are saved under media_file; serving the parent PDF/DOCX
     # here makes the browser try to render a document as an image.
     serve_name = m.get("media_file") or fname
@@ -1470,11 +1486,158 @@ def media_scoped(session_id: str, filename: str, user: dict = Depends(get_user))
     # Enforce authentication and ownership of the session.
     _require_owner(session_id, user)
 
-    path = _session_dir(session_id) / Path(filename).name
-    if not path.exists():
+    clean_name = Path(filename).name
+    path = _safe_join(_session_dir(session_id), clean_name)
+    if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="File not found.")
 
     return FileResponse(str(path))
+
+
+@app.get("/api/documents/{session_id}/{filename}/content")
+def get_document_content(session_id: str, filename: str, user: dict = Depends(get_user)):
+    """Stage 4 Evidence & Document Viewer backend content provider.
+    Enforces tenant isolation, session ownership, and path traversal protection."""
+    _require_owner(session_id, user)
+
+    clean_name = Path(filename).name
+    path = _safe_join(_session_dir(session_id), clean_name)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Document file not found.")
+
+    ext = path.suffix.lower()
+    file_size = path.stat().st_size
+    raw_url = f"/api/media/{session_id}/{clean_name}"
+
+    if ext == ".pdf":
+        try:
+            import fitz
+            doc = fitz.open(str(path))
+            pages = []
+            for idx in range(len(doc)):
+                p = doc[idx]
+                txt = p.get_text("text").strip()
+                pages.append({"page_number": idx + 1, "text": txt})
+            page_count = len(doc)
+            doc.close()
+            return {
+                "filename": clean_name,
+                "modality": "pdf",
+                "has_pages": True,
+                "page_count": page_count,
+                "pages": pages,
+                "raw_url": raw_url,
+                "file_size": file_size,
+            }
+        except Exception as exc:
+            logger.warning("PDF reading error for %s: %s", clean_name, exc)
+            return {
+                "filename": clean_name,
+                "modality": "pdf",
+                "has_pages": True,
+                "page_count": None,
+                "pages": [],
+                "raw_url": raw_url,
+                "file_size": file_size,
+            }
+
+    if ext in (".docx", ".doc"):
+        try:
+            import docx
+            doc = docx.Document(str(path))
+            paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+            for table in doc.tables:
+                for row in table.rows:
+                    cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                    if cells:
+                        paragraphs.append(" | ".join(cells))
+            full_text = "\n\n".join(paragraphs)
+            return {
+                "filename": clean_name,
+                "modality": "docx",
+                "has_pages": False,
+                "page_count": None,
+                "content": full_text,
+                "raw_url": raw_url,
+                "file_size": file_size,
+            }
+        except Exception as exc:
+            logger.warning("DOCX reading error for %s: %s", clean_name, exc)
+
+    if ext in (".pptx", ".ppt"):
+        try:
+            import pptx
+            prs = pptx.Presentation(str(path))
+            slides = []
+            for idx, slide in enumerate(prs.slides):
+                slide_no = idx + 1
+                texts = []
+                title = slide.shapes.title.text.strip() if (slide.shapes.title and slide.shapes.title.text) else None
+                if title:
+                    texts.append(title)
+                for shape in slide.shapes:
+                    if shape != slide.shapes.title and shape.has_text_frame and shape.text_frame.text.strip():
+                        texts.append(shape.text_frame.text.strip())
+                slides.append({"page_number": slide_no, "title": title, "text": "\n".join(texts)})
+            return {
+                "filename": clean_name,
+                "modality": "pptx",
+                "has_pages": True,
+                "page_count": len(prs.slides),
+                "pages": slides,
+                "raw_url": raw_url,
+                "file_size": file_size,
+            }
+        except Exception as exc:
+            logger.warning("PPTX reading error for %s: %s", clean_name, exc)
+
+    if ext in (".xlsx", ".xls"):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(str(path), data_only=True, read_only=True)
+            sheets = []
+            for idx, sname in enumerate(wb.sheetnames):
+                sheet = wb[sname]
+                rows = []
+                for r_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+                    if r_idx >= 500:
+                        break
+                    row_vals = [str(c).strip() for c in row if c is not None and str(c).strip()]
+                    if row_vals:
+                        rows.append(row_vals)
+                sheets.append({"page_number": idx + 1, "title": sname, "rows": rows})
+            wb.close()
+            return {
+                "filename": clean_name,
+                "modality": "xlsx",
+                "has_pages": True,
+                "page_count": len(sheets),
+                "sheets": sheets,
+                "raw_url": raw_url,
+                "file_size": file_size,
+            }
+        except Exception as exc:
+            logger.warning("XLSX reading error for %s: %s", clean_name, exc)
+
+    # Plain text / Markdown / CSV / JSON / fallback
+    content = ""
+    for enc in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
+        try:
+            with open(path, "r", encoding=enc) as f:
+                content = f.read()
+            break
+        except UnicodeDecodeError:
+            continue
+
+    return {
+        "filename": clean_name,
+        "modality": "text",
+        "has_pages": False,
+        "page_count": None,
+        "content": content,
+        "raw_url": raw_url,
+        "file_size": file_size,
+    }
 
 
 # ------------------------------------------------------------------ danger zone

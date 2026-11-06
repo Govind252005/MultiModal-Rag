@@ -1,0 +1,645 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react'
+import {
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Minimize2,
+  X,
+  Search,
+  Loader2,
+  AlertCircle,
+  FileSpreadsheet,
+  Presentation,
+  CheckCircle2,
+  Sparkles,
+} from 'lucide-react'
+import type { Citation, DocumentContentResponse } from '../types'
+import { getDocumentContent } from '../api'
+
+export interface DocumentViewerProps {
+  sessionId: string
+  activeDocument: string
+  activeCitation: Citation | null
+  allCitations: Citation[]
+  onSelectCitation: (cit: Citation) => void
+  onClose: () => void
+  isSplitView?: boolean
+  onToggleSplit?: () => void
+}
+
+export default function DocumentViewer({
+  sessionId,
+  activeDocument,
+  activeCitation,
+  allCitations,
+  onSelectCitation,
+  onClose,
+}: DocumentViewerProps) {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [docContent, setDocContent] = useState<DocumentContentResponse | null>(null)
+  const [currentPage, setCurrentPage] = useState<number>(1)
+  const [activeSheetIndex, setActiveSheetIndex] = useState<number>(0)
+  const [zoomLevel, setZoomLevel] = useState<number>(100)
+  const [viewMode, setViewMode] = useState<'interactive' | 'binary'>('interactive')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [fullWidth, setFullWidth] = useState(false)
+
+  const textContainerRef = useRef<HTMLDivElement>(null)
+  const activeHighlightRef = useRef<HTMLElement | null>(null)
+
+  const effectiveSessionId = sessionId || activeCitation?.session_id || ''
+
+  // 1. Fetch document content when activeDocument or sessionId changes
+  useEffect(() => {
+    let canceled = false
+    if (!activeDocument || !effectiveSessionId) return
+
+    setLoading(true)
+    setError(null)
+
+    getDocumentContent(effectiveSessionId, activeDocument)
+      .then((data) => {
+        if (canceled) return
+        setDocContent(data)
+        setLoading(false)
+
+        // If activeCitation has a valid page, set current page
+        if (activeCitation?.file === activeDocument && activeCitation.page != null && activeCitation.page > 0) {
+          setCurrentPage(activeCitation.page)
+        } else {
+          setCurrentPage(1)
+        }
+      })
+      .catch((err) => {
+        if (canceled) return
+        setError(err.message || 'Failed to load document content.')
+        setLoading(false)
+      })
+
+    return () => {
+      canceled = true
+    }
+  }, [sessionId, activeDocument])
+
+  // 2. Synchronize current page when user selects a different citation
+  useEffect(() => {
+    if (activeCitation && activeCitation.file === activeDocument) {
+      if (activeCitation.page != null && activeCitation.page > 0) {
+        setCurrentPage(activeCitation.page)
+      }
+    }
+  }, [activeCitation, activeDocument])
+
+  // 3. Scroll active highlight into view
+  useEffect(() => {
+    if (activeHighlightRef.current) {
+      activeHighlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [currentPage, activeCitation, docContent])
+
+  // Citations for the current document
+  const docCitations = useMemo(() => {
+    return allCitations.filter((c) => c.file === activeDocument)
+  }, [allCitations, activeDocument])
+
+  // Filtered citations in sidebar (displays all answer citations to enable seamless cross-document navigation)
+  const filteredCitations = useMemo(() => {
+    if (!searchQuery.trim()) return allCitations
+    const q = searchQuery.toLowerCase()
+    return allCitations.filter(
+      (c) =>
+        c.file.toLowerCase().includes(q) ||
+        c.snippet.toLowerCase().includes(q) ||
+        (c.text && c.text.toLowerCase().includes(q)) ||
+        (c.page != null && `page ${c.page}`.includes(q))
+    )
+  }, [allCitations, searchQuery])
+
+  // Total pages calculation
+  const totalPages = useMemo(() => {
+    if (!docContent) return 1
+    if (docContent.page_count && docContent.page_count > 0) return docContent.page_count
+    if (docContent.pages && docContent.pages.length > 0) return docContent.pages.length
+    if (docContent.sheets && docContent.sheets.length > 0) return docContent.sheets.length
+    return 1
+  }, [docContent])
+
+  // Page navigation helpers
+  function goToPrevPage() {
+    setCurrentPage((p) => Math.max(1, p - 1))
+  }
+  function goToNextPage() {
+    setCurrentPage((p) => Math.min(totalPages, p + 1))
+  }
+
+  // Zoom controls
+  function handleZoomIn() {
+    setZoomLevel((z) => Math.min(200, z + 15))
+  }
+  function handleZoomOut() {
+    setZoomLevel((z) => Math.max(70, z - 15))
+  }
+  function handleResetZoom() {
+    setZoomLevel(100)
+  }
+
+  // Active page text
+  const currentPageText = useMemo(() => {
+    if (!docContent) return ''
+    if (docContent.pages && docContent.pages.length > 0) {
+      const p = docContent.pages.find((page) => page.page_number === currentPage)
+      return p ? p.text : docContent.pages[0]?.text || ''
+    }
+    if (docContent.content) return docContent.content
+    return ''
+  }, [docContent, currentPage])
+
+  // Text matching & Highlighting Engine (Unicode, Devanagari, and whitespace aware)
+  const renderedTextWithHighlights = useMemo(() => {
+    if (!currentPageText) return null
+
+    // Find all citations on this page or without page restrictions
+    const citationsOnThisPage = docCitations.filter(
+      (c) => c.page === null || c.page === currentPage || (!docContent?.has_pages)
+    )
+
+    if (citationsOnThisPage.length === 0) {
+      return <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200">{currentPageText}</div>
+    }
+
+    // Attempt to locate passages in page text
+    interface MatchRange {
+      start: number
+      end: number
+      citation: Citation
+      isActive: boolean
+    }
+
+    const matches: MatchRange[] = []
+    const normPage = currentPageText.replace(/\s+/g, ' ')
+
+    for (const cit of citationsOnThisPage) {
+      const rawTarget = (cit.text || cit.snippet || '').trim()
+      if (!rawTarget) continue
+
+      // Clean target: take up to 150 chars of meaningful text for search
+      const targetSub = rawTarget.replace(/\s+/g, ' ')
+      const searchProbe = targetSub.length > 80 ? targetSub.slice(0, 80) : targetSub
+
+      let startIdx = currentPageText.indexOf(searchProbe)
+      let endIdx = -1
+
+      if (startIdx >= 0) {
+        endIdx = startIdx + searchProbe.length
+      } else {
+        // Fallback: try searching in normalized string
+        const normIdx = normPage.indexOf(searchProbe)
+        if (normIdx >= 0) {
+          // Approximate index mapped back to original text
+          startIdx = Math.min(normIdx, currentPageText.length - 1)
+          endIdx = Math.min(startIdx + searchProbe.length, currentPageText.length)
+        }
+      }
+
+      if (startIdx >= 0 && endIdx > startIdx) {
+        matches.push({
+          start: startIdx,
+          end: endIdx,
+          citation: cit,
+          isActive: activeCitation?.index === cit.index,
+        })
+      }
+    }
+
+    // If no exact match located, return plain text and let the verification card render below
+    if (matches.length === 0) {
+      return <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200">{currentPageText}</div>
+    }
+
+    // Sort matches by start position
+    matches.sort((a, b) => a.start - b.start)
+
+    // Build segments
+    const elements: React.ReactNode[] = []
+    let lastIdx = 0
+
+    matches.forEach((m, i) => {
+      if (m.start > lastIdx) {
+        elements.push(
+          <span key={`text-${lastIdx}-${m.start}`}>
+            {currentPageText.slice(lastIdx, m.start)}
+          </span>
+        )
+      }
+
+      const highlightedSlice = currentPageText.slice(m.start, m.end)
+      const isAct = m.isActive
+
+      elements.push(
+        <mark
+          key={`mark-${i}-${m.start}`}
+          ref={isAct ? (el) => { activeHighlightRef.current = el } : undefined}
+          onClick={() => onSelectCitation(m.citation)}
+          className={`cursor-pointer rounded px-1 py-0.5 transition-all font-medium ${
+            isAct
+              ? 'bg-amber-300 text-amber-950 dark:bg-amber-400 dark:text-amber-950 ring-2 ring-amber-500 shadow-sm'
+              : 'bg-emerald-100 text-emerald-950 dark:bg-emerald-900/50 dark:text-emerald-200 hover:bg-emerald-200'
+          }`}
+          title={`Citation [${m.citation.index}] - ${m.citation.file}${m.citation.page ? `, p. ${m.citation.page}` : ''}`}
+        >
+          {highlightedSlice}
+          <span className="ml-1 inline-flex items-center justify-center rounded bg-surface-900/10 px-1 py-0.2 text-[10px] font-mono font-bold align-super">
+            [{m.citation.index}]
+          </span>
+        </mark>
+      )
+
+      lastIdx = m.end
+    })
+
+    if (lastIdx < currentPageText.length) {
+      elements.push(
+        <span key={`text-end-${lastIdx}`}>
+          {currentPageText.slice(lastIdx)}
+        </span>
+      )
+    }
+
+    return <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200">{elements}</div>
+  }, [currentPageText, docCitations, activeCitation, currentPage, docContent])
+
+  // Check if active citation has an exact verified match on current page
+  const hasVerifiedMatchOnPage = useMemo(() => {
+    if (!activeCitation || !currentPageText) return false
+    const probe = (activeCitation.text || activeCitation.snippet || '').trim().replace(/\s+/g, ' ')
+    const searchProbe = probe.length > 80 ? probe.slice(0, 80) : probe
+    return currentPageText.replace(/\s+/g, ' ').includes(searchProbe)
+  }, [activeCitation, currentPageText])
+
+  return (
+    <div
+      className={`flex flex-col h-full bg-white dark:bg-surface-900 border-l border-surface-200 dark:border-surface-800 transition-all duration-200 ${
+        fullWidth ? 'fixed inset-0 z-50' : 'w-full'
+      }`}
+      data-testid="evidence-document-viewer"
+    >
+      {/* 1. Header Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-850 px-4 py-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {docContent?.modality === 'pdf' ? (
+            <FileText className="h-5 w-5 text-rose-500 shrink-0" />
+          ) : docContent?.modality === 'xlsx' ? (
+            <FileSpreadsheet className="h-5 w-5 text-emerald-600 shrink-0" />
+          ) : docContent?.modality === 'pptx' ? (
+            <Presentation className="h-5 w-5 text-amber-500 shrink-0" />
+          ) : (
+            <FileText className="h-5 w-5 text-brand-600 shrink-0" />
+          )}
+
+          <div className="min-w-0">
+            <h3 className="truncate font-semibold text-sm text-surface-900 dark:text-surface-100" title={activeDocument}>
+              {activeDocument}
+            </h3>
+            <div className="flex items-center gap-2 text-[11px] text-surface-500 dark:text-surface-400">
+              <span className="uppercase font-mono font-medium">{docContent?.modality || 'DOC'}</span>
+              <span>&middot;</span>
+              {docContent?.has_pages ? (
+                <span className="font-medium text-brand-600 dark:text-brand-400">
+                  Page {currentPage} of {totalPages}
+                </span>
+              ) : (
+                <span className="text-amber-600 dark:text-amber-400">Text-level evidence</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Toolbar Controls */}
+        <div className="flex items-center gap-1.5">
+          {/* Page Pagination (when format has pages) */}
+          {docContent?.has_pages && (
+            <div className="flex items-center rounded-lg border border-surface-200 bg-white dark:border-surface-700 dark:bg-surface-800 px-1 py-0.5">
+              <button
+                type="button"
+                onClick={goToPrevPage}
+                disabled={currentPage <= 1}
+                className="p-1 rounded text-surface-600 hover:bg-surface-100 disabled:opacity-30 dark:text-surface-300 dark:hover:bg-surface-700"
+                title="Previous page"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="px-2 text-xs font-mono font-medium text-surface-700 dark:text-surface-300">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={goToNextPage}
+                disabled={currentPage >= totalPages}
+                className="p-1 rounded text-surface-600 hover:bg-surface-100 disabled:opacity-30 dark:text-surface-300 dark:hover:bg-surface-700"
+                title="Next page"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Zoom Controls */}
+          <div className="hidden sm:flex items-center rounded-lg border border-surface-200 bg-white dark:border-surface-700 dark:bg-surface-800 px-1 py-0.5">
+            <button
+              type="button"
+              onClick={handleZoomOut}
+              className="p-1 rounded text-surface-600 hover:bg-surface-100 dark:text-surface-300 dark:hover:bg-surface-700"
+              title="Zoom out"
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleResetZoom}
+              className="px-1.5 text-xs font-mono text-surface-700 dark:text-surface-300 hover:underline"
+              title="Reset to 100%"
+            >
+              {zoomLevel}%
+            </button>
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              className="p-1 rounded text-surface-600 hover:bg-surface-100 dark:text-surface-300 dark:hover:bg-surface-700"
+              title="Zoom in"
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* PDF View Mode Switcher (Interactive vs Binary) */}
+          {docContent?.modality === 'pdf' && (
+            <div className="flex items-center rounded-lg border border-surface-200 bg-white dark:border-surface-700 dark:bg-surface-800 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode('interactive')}
+                className={`px-2 py-1 rounded font-medium transition ${
+                  viewMode === 'interactive'
+                    ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
+                    : 'text-surface-600 hover:text-surface-900 dark:text-surface-400'
+                }`}
+                title="Interactive Evidence Text View with verified highlights"
+              >
+                Evidence
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('binary')}
+                className={`px-2 py-1 rounded font-medium transition ${
+                  viewMode === 'binary'
+                    ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
+                    : 'text-surface-600 hover:text-surface-900 dark:text-surface-400'
+                }`}
+                title="Embedded PDF document page view"
+              >
+                PDF View
+              </button>
+            </div>
+          )}
+
+          {/* Full Width Toggle */}
+          <button
+            type="button"
+            onClick={() => setFullWidth(!fullWidth)}
+            className="p-1.5 rounded-lg text-surface-500 hover:bg-surface-100 dark:text-surface-400 dark:hover:bg-surface-800"
+            title={fullWidth ? 'Restore split view' : 'Maximize viewer'}
+          >
+            {fullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
+
+          {/* Close Button */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-surface-500 hover:bg-rose-50 hover:text-rose-600 dark:text-surface-400 dark:hover:bg-rose-950 dark:hover:text-rose-300"
+            title="Close viewer"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Main Dual-Pane Body: Document Viewer (Left) + Annotations Sidebar (Right) */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Document Display Area */}
+        <div className="flex-1 flex flex-col overflow-y-auto p-4 sm:p-6 bg-surface-100/60 dark:bg-surface-950 scroll-thin">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center flex-1 py-16 text-surface-400">
+              <Loader2 className="h-8 w-8 animate-spin text-brand-600 mb-3" />
+              <p className="text-sm font-medium">Loading document and verifying citations...</p>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center flex-1 py-16 text-center max-w-md mx-auto">
+              <AlertCircle className="h-10 w-10 text-rose-500 mb-3" />
+              <h4 className="text-sm font-semibold text-surface-900 dark:text-surface-100 mb-1">
+                Unable to Open Document
+              </h4>
+              <p className="text-xs text-surface-500 dark:text-surface-400 mb-4">{error}</p>
+            </div>
+          ) : (
+            <div className="mx-auto w-full max-w-4xl space-y-4" style={{ zoom: `${zoomLevel}%` }}>
+              {/* Fallback Banner for Formats without Native Page Navigation */}
+              {!docContent?.has_pages && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200 flex items-start gap-2.5">
+                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold">Notice:</span> Page-level pagination is not applicable for {docContent?.modality.toUpperCase()} documents. Displaying verified text evidence and supporting passages.
+                  </div>
+                </div>
+              )}
+
+              {/* Active Citation Badge Banner */}
+              {activeCitation && (
+                <div className="rounded-xl border border-brand-200 bg-brand-50/80 p-3 text-xs text-brand-900 dark:border-brand-900 dark:bg-brand-950/40 dark:text-brand-200 flex items-center justify-between shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center rounded bg-brand-600 px-2 py-0.5 font-mono text-xs font-bold text-white">
+                      [{activeCitation.index}]
+                    </span>
+                    <span className="font-semibold">Active Supporting Evidence</span>
+                    {activeCitation.page != null && (
+                      <span className="rounded bg-brand-100 px-1.5 py-0.5 font-mono text-[10px] text-brand-800 dark:bg-brand-900 dark:text-brand-300">
+                        Page {activeCitation.page}
+                      </span>
+                    )}
+                  </div>
+                  {hasVerifiedMatchOnPage && (
+                    <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Exact Match Highlighted
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Verified Excerpt Fallback Card (when exact visual match cannot be located on the page) */}
+              {activeCitation && !hasVerifiedMatchOnPage && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-surface-800 dark:bg-surface-900">
+                  <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    <Sparkles className="h-4 w-4 text-amber-500" />
+                    <span>Verified Source Passage (Visual location fallback)</span>
+                  </div>
+                  <p className="text-xs text-surface-500 dark:text-surface-400 mb-2">
+                    Exact character position could not be automatically anchored in page layout text. Displaying the exact retrieved source chunk below without fabrication:
+                  </p>
+                  <blockquote className="rounded-lg bg-surface-50 p-3 text-xs italic text-surface-800 border-l-4 border-amber-500 dark:bg-surface-800 dark:text-surface-200 font-sans leading-relaxed whitespace-pre-wrap">
+                    "{activeCitation.text || activeCitation.snippet}"
+                  </blockquote>
+                </div>
+              )}
+
+              {/* View Mode: Binary PDF iframe embed */}
+              {viewMode === 'binary' && docContent?.raw_url ? (
+                <div className="rounded-2xl border border-surface-200 bg-white shadow-sm overflow-hidden dark:border-surface-800 dark:bg-surface-900 h-[650px]">
+                  <iframe
+                    src={`${docContent.raw_url}#page=${currentPage}`}
+                    title={activeDocument}
+                    className="w-full h-full border-0"
+                  />
+                </div>
+              ) : docContent?.modality === 'xlsx' && docContent.sheets ? (
+                /* Spreadsheet Grid Viewer */
+                <div className="rounded-2xl border border-surface-200 bg-white shadow-sm overflow-hidden dark:border-surface-800 dark:bg-surface-900">
+                  {/* Sheet tabs */}
+                  <div className="flex items-center gap-1 border-b border-surface-200 bg-surface-50 px-3 py-2 dark:border-surface-800 dark:bg-surface-850">
+                    {docContent.sheets.map((sheet, sIdx) => (
+                      <button
+                        key={sheet.title}
+                        type="button"
+                        onClick={() => {
+                          setActiveSheetIndex(sIdx)
+                          setCurrentPage(sIdx + 1)
+                        }}
+                        className={`rounded-lg px-3 py-1 text-xs font-medium transition ${
+                          activeSheetIndex === sIdx
+                            ? 'bg-white text-emerald-700 shadow-2xs dark:bg-surface-800 dark:text-emerald-400'
+                            : 'text-surface-600 hover:text-surface-900 dark:text-surface-400'
+                        }`}
+                      >
+                        {sheet.title}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Spreadsheet Table */}
+                  <div className="overflow-x-auto p-4 max-h-[500px]">
+                    {docContent.sheets[activeSheetIndex] ? (
+                      <table className="w-full border-collapse text-xs">
+                        <tbody>
+                          {docContent.sheets[activeSheetIndex].rows.map((row, rIdx) => (
+                            <tr key={rIdx} className="hover:bg-surface-50 dark:hover:bg-surface-800/50">
+                              <td className="w-8 border border-surface-200 bg-surface-50 p-1.5 text-center font-mono text-[10px] text-surface-400 dark:border-surface-800 dark:bg-surface-850">
+                                {rIdx + 1}
+                              </td>
+                              {row.map((cell, cIdx) => (
+                                <td key={cIdx} className="border border-surface-200 p-2 text-surface-800 dark:border-surface-800 dark:text-surface-200">
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="text-xs text-surface-400 p-4">No sheet rows available.</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Interactive Evidence Text Viewer with Highlights */
+                <div
+                  ref={textContainerRef}
+                  className="rounded-2xl border border-surface-200 bg-white p-6 sm:p-8 shadow-sm dark:border-surface-800 dark:bg-surface-900 font-sans text-sm leading-relaxed"
+                >
+                  {renderedTextWithHighlights}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 3. Evidence & Annotations Sidebar (Matching the 3rd user reference image!) */}
+        <div className="w-80 border-l border-surface-200 bg-white dark:border-surface-800 dark:bg-surface-900 flex flex-col shrink-0">
+          <div className="p-3 border-b border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-850">
+            <h4 className="font-semibold text-xs text-surface-700 dark:text-surface-200 uppercase tracking-wider mb-2">
+              Annotations & Evidence ({docCitations.length})
+            </h4>
+
+            {/* Annotation search filter */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-surface-400" />
+              <input
+                type="text"
+                placeholder="Search annotations by text..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-lg border border-surface-200 bg-white pl-8 pr-3 py-1.5 text-xs text-surface-800 placeholder-surface-400 focus:border-brand-500 focus:outline-hidden dark:border-surface-700 dark:bg-surface-800 dark:text-surface-200"
+              />
+            </div>
+          </div>
+
+          {/* Annotations List */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5 scroll-thin">
+            {filteredCitations.length === 0 ? (
+              <div className="text-center py-8 text-surface-400 text-xs">
+                No citations match the filter.
+              </div>
+            ) : (
+              filteredCitations.map((c) => {
+                const isSelected = activeCitation?.index === c.index
+                return (
+                  <div
+                    key={`ann-${c.index}`}
+                    data-testid={`annotation-card-${c.index}`}
+                    onClick={() => {
+                      onSelectCitation(c)
+                      if (c.page != null && c.page > 0) {
+                        setCurrentPage(c.page)
+                      }
+                    }}
+                    className={`cursor-pointer rounded-xl border p-3 transition-all ${
+                      isSelected
+                        ? 'border-brand-500 bg-brand-50/70 dark:bg-brand-950/40 shadow-xs'
+                        : 'border-surface-200 bg-white hover:border-surface-300 dark:border-surface-800 dark:bg-surface-850'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="inline-flex items-center justify-center rounded bg-brand-600 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white shrink-0">
+                          [{c.index}]
+                        </span>
+                        <span className="truncate text-[10px] font-medium text-surface-600 dark:text-surface-300" title={c.file}>
+                          {c.file}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono text-surface-400 shrink-0">
+                        {c.page != null ? `p. ${c.page}` : c.source_type}
+                      </span>
+                    </div>
+
+                    <p className="line-clamp-3 text-xs italic text-surface-700 dark:text-surface-300 mb-2">
+                      "{c.snippet}"
+                    </p>
+
+                    <div className="flex items-center justify-between text-[10px] text-surface-400 border-t border-surface-100 dark:border-surface-800 pt-1.5">
+                      <span className="text-brand-600 dark:text-brand-400 font-medium">
+                        Supporting evidence
+                      </span>
+                      <span>Jump to page &rarr;</span>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

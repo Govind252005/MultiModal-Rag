@@ -88,8 +88,8 @@ export async function logout(): Promise<void> {
 export const health = () => request<HealthResponse>('/api/health')
 
 // ---- sessions --------------------------------------------------------------
-export const listSessions = (): Promise<SessionSummary[]> =>
-  request<any>('/api/sessions').then((r) => (Array.isArray(r) ? r : (r?.sessions || [])))
+export const listSessions = () =>
+  request<{ sessions: SessionSummary[] }>('/api/sessions').then((r) => r.sessions)
 export const createSession = (title = 'New chat') =>
   request<SessionDetail>('/api/sessions', json({ title }))
 export const getSession = (id: string) =>
@@ -241,10 +241,9 @@ export async function queryStream(
         }
 
         if (eventName === 'citations') {
-          const arr = Array.isArray(payload) ? payload : ((payload as any)?.citations || [])
-          callbacks.onCitations?.(arr as Citation[])
-        } else if (eventName === 'delta' || eventName === 'token') {
-          const text = (payload as { text?: string; token?: string }).text ?? (payload as any)?.token
+          callbacks.onCitations?.(payload as Citation[])
+        } else if (eventName === 'delta') {
+          const text = (payload as { text?: string }).text
           if (text) callbacks.onDelta?.(text)
         } else if (eventName === 'done') {
           callbacks.onDone?.(payload as { used_llm: boolean; metrics: StreamMetrics })
@@ -317,6 +316,16 @@ export async function getMediaUrl(url: string): Promise<string> {
   const blob = await res.blob();
 
   return URL.createObjectURL(blob);
+}
+
+// ---- document content & evidence viewer ------------------------------------
+export function getDocumentContent(
+  sessionId: string,
+  filename: string
+): Promise<import('./types').DocumentContentResponse> {
+  return request<import('./types').DocumentContentResponse>(
+    `/api/documents/${encodeURIComponent(sessionId)}/${encodeURIComponent(filename)}/content`
+  )
 }
 
 // ---- admin (RBAC-enforced) ------------------------------------------------

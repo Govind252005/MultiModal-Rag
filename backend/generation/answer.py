@@ -45,6 +45,7 @@ def _citation(index: int, hit: Dict[str, Any]) -> Dict[str, Any]:
         "end": hit.get("end"),
         "timestamp": hit.get("timestamp"),
         "snippet": hit.get("snippet"),
+        "text": hit.get("text") or hit.get("snippet") or "",
         "media_url": hit.get("media_url"),
         "score": hit.get("score"),
         # brief §19: this is a relative min-max normalization across THIS

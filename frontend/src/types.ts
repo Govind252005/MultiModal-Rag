@@ -16,6 +16,7 @@ export interface Citation {
   end: number | null
   timestamp: string | null
   snippet: string
+  text?: string
   media_url: string
   score: number
   // brief §19: relative min-max normalization across this answer's own
@@ -24,6 +25,31 @@ export interface Citation {
   // compatibility; new code should read relative_relevance.
   relative_relevance: number
   confidence: number
+}
+
+export interface DocumentPage {
+  page_number: number
+  title?: string
+  section?: string
+  text: string
+}
+
+export interface DocumentSheet {
+  page_number: number
+  title: string
+  rows: string[][]
+}
+
+export interface DocumentContentResponse {
+  filename: string
+  modality: 'pdf' | 'docx' | 'pptx' | 'xlsx' | 'text'
+  has_pages: boolean
+  page_count: number | null
+  pages?: DocumentPage[]
+  sheets?: DocumentSheet[]
+  content?: string
+  raw_url: string
+  file_size: number
 }
 
 export interface Hit {

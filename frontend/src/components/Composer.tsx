@@ -40,8 +40,8 @@ export interface ComposerProps {
 }
 
 const SUPPORTED_DOCS = '.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.txt,.csv,.md,.json,.log'
-const SUPPORTED_IMAGES = 'image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp'
-const SUPPORTED_AUDIO = 'audio/*,.mp3,.wav,.m4a,.flac,.ogg,.webm'
+const SUPPORTED_IMAGES = '.png,.jpg,.jpeg,.webp,.gif,.bmp'
+const SUPPORTED_AUDIO = '.mp3,.wav,.m4a,.flac,.ogg,.webm'
 
 export default function Composer({
   onSubmitText,
@@ -74,6 +74,7 @@ export default function Composer({
   const streamRef = useRef<MediaStream | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<any>(null)
+  const speechRecRef = useRef<any>(null)
 
   // Auto-resize textarea as user types
   useEffect(() => {
@@ -133,13 +134,23 @@ export default function Composer({
       newAttachment.transcribing = true
       transcribeBlob(file)
         .then((text) => {
+          const trimmed = text.trim()
           setStagedFiles((current) =>
             current.map((att) =>
               att.id === newAttachment.id
-                ? { ...att, transcript: text.trim(), transcribing: false }
+                ? { ...att, transcript: trimmed, transcribing: false }
                 : att
             )
           )
+          // Populate the prompt query textarea so the user can immediately review, edit, and add instructions!
+          if (trimmed) {
+            setInput((prev) => {
+              const currentInput = prev.trim()
+              if (!currentInput) return trimmed
+              if (!currentInput.includes(trimmed)) return `${currentInput}\n${trimmed}`
+              return prev
+            })
+          }
         })
         .catch(() => {
           setStagedFiles((current) =>
@@ -161,7 +172,7 @@ export default function Composer({
     })
   }
 
-  // Voice recording
+  // Voice recording with live speech-to-text review
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -175,12 +186,46 @@ export default function Composer({
       recorder.start()
       recorderRef.current = recorder
       setRecording(true)
+
+      // Start live speech-to-text if Web Speech API is supported
+      if (typeof window !== 'undefined') {
+        const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        if (SpeechRec) {
+          try {
+            const rec = new SpeechRec()
+            rec.continuous = true
+            rec.interimResults = true
+            rec.onresult = (evt: any) => {
+              let liveText = ''
+              for (let i = 0; i < evt.results.length; ++i) {
+                liveText += evt.results[i][0].transcript
+              }
+              if (liveText.trim()) {
+                setInput(liveText.trim())
+              }
+            }
+            rec.onerror = () => {
+              // Graceful fallback to backend Whisper on stop
+            }
+            rec.start()
+            speechRecRef.current = rec
+          } catch {
+            // SpeechRec init failed, fallback to backend transcribe on stop
+          }
+        }
+      }
     } catch {
       onError('Microphone permission denied or device unavailable.')
     }
   }
 
   function stopRecording() {
+    if (speechRecRef.current) {
+      try {
+        speechRecRef.current.stop()
+      } catch {}
+      speechRecRef.current = null
+    }
     recorderRef.current?.stop()
     setRecording(false)
   }
@@ -324,9 +369,22 @@ export default function Composer({
                     </span>
                   )}
                   {att.transcript && (
-                    <p className="mt-0.5 truncate text-[10px] text-surface-500 italic max-w-[200px]" title={att.transcript}>
-                      "{att.transcript}"
-                    </p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <p className="truncate text-[10px] text-surface-600 dark:text-surface-300 italic max-w-[180px]" title={att.transcript}>
+                        "{att.transcript}"
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInput(att.transcript || '')
+                          textareaRef.current?.focus()
+                        }}
+                        className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300"
+                        title="Click to load transcript into query box and edit words or add instructions"
+                      >
+                        Edit in Query
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -434,8 +492,8 @@ export default function Composer({
             ref={fileInputRef}
             type="file"
             multiple
-            data-testid="composer-doc-input"
             accept={SUPPORTED_DOCS}
+            data-testid="composer-file-input"
             className="hidden"
             onChange={(e) => {
               Array.from(e.target.files || []).forEach(stageFile)
@@ -445,8 +503,8 @@ export default function Composer({
           <input
             ref={imageInputRef}
             type="file"
-            data-testid="composer-image-input"
             accept={SUPPORTED_IMAGES}
+            data-testid="composer-image-input"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0]
@@ -457,8 +515,8 @@ export default function Composer({
           <input
             ref={audioInputRef}
             type="file"
-            data-testid="composer-audio-input"
             accept={SUPPORTED_AUDIO}
+            data-testid="composer-audio-input"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0]

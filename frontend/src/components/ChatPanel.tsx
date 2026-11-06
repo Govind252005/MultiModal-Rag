@@ -110,7 +110,7 @@ function AssistantBubble({
 }) {
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
-  const validIndexes = new Set((Array.isArray(message.citations) ? message.citations : []).map((c) => c.index))
+  const validIndexes = new Set((message.citations ?? []).map((c) => c.index))
 
   function handleCopy() {
     navigator.clipboard.writeText(message.text)
@@ -156,7 +156,7 @@ function AssistantBubble({
             )}
 
             {/* Inline Extracted Citation Images */}
-            {Array.isArray(message.citations) && message.citations.length > 0 && (
+            {message.citations && message.citations.length > 0 && (
               <InlineCitationImages citations={message.citations} onOpenImage={onOpenImage} />
             )}
 

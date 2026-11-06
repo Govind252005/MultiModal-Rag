@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { PanelRight, Loader2 } from "lucide-react";
 
 import * as api from "./api";
@@ -27,6 +27,7 @@ import ChatPanel from "./components/ChatPanel";
 import Composer from "./components/Composer";
 import SourcesPanel from "./components/SourcesPanel";
 import LibraryPanel from "./components/LibraryPanel";
+import DocumentViewer from "./components/DocumentViewer";
 import Toast from "./components/Toast";
 import ProviderPanel from "./components/ProviderPanel";
 
@@ -108,6 +109,10 @@ export default function App() {
   });
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [activeDocument, setActiveDocument] = useState<string>('');
+  const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
+  const [splitRatio, setSplitRatio] = useState<number>(50);
   const [error, setError] = useState<string | null>(null);
 
   // Loaders -----------------------------------------------------------------
@@ -124,8 +129,7 @@ export default function App() {
 
   const loadSessions = useCallback(async () => {
     try {
-      const res = await api.listSessions();
-      setSessions(res || []);
+      setSessions(await api.listSessions());
     } catch (err) {
       setError((err as Error).message);
     }
@@ -153,9 +157,9 @@ export default function App() {
 
   // Load the most recent session's document library so the Dashboard displays genuine files
   useEffect(() => {
-    if (user && sessions && sessions.length > 0 && !currentId) {
+    if (user && sessions.length > 0 && !currentId) {
       api.getSession(sessions[0].id).then((s) => {
-        if (s && s.files && s.files.length > 0) setFiles(s.files);
+        if (s.files && s.files.length > 0) setFiles(s.files);
       }).catch(() => {});
     }
   }, [user, sessions, currentId]);
@@ -247,6 +251,12 @@ export default function App() {
     );
   }
   function handleCitationClick(index: number) {
+    const cit = citations.find((c) => c.index === index);
+    if (cit) {
+      setActiveCitation(cit);
+      setActiveDocument(cit.file);
+      setViewerOpen(true);
+    }
     setSourcesOpen(true);
     setFlashIndex(null);
     requestAnimationFrame(() => setFlashIndex(index));
@@ -258,6 +268,9 @@ export default function App() {
     setMessages([]);
     setFiles([]);
     setCitations([]);
+    setViewerOpen(false);
+    setActiveCitation(null);
+    setActiveDocument('');
     setScope(DEFAULT_SCOPE);
     setSidebarOpen(false);
   }
@@ -620,8 +633,14 @@ export default function App() {
 
             {health && !health.llm_available && <LlmBanner />}
 
-            <div className="flex min-h-0 flex-1">
-              <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 relative overflow-hidden">
+              {/* Left Chat Pane */}
+              <div
+                className={`flex min-w-0 flex-col transition-all duration-150 ${
+                  viewerOpen && activeDocument ? 'hidden lg:flex' : 'flex-1'
+                }`}
+                style={viewerOpen && activeDocument && typeof window !== 'undefined' && window.innerWidth >= 1024 ? { width: `${splitRatio}%` } : undefined}
+              >
                 <ChatPanel
                   messages={messages}
                   onCitationClick={handleCitationClick}
@@ -644,13 +663,56 @@ export default function App() {
                 />
               </div>
 
-              <SourcesPanel
-                citations={citations}
-                flashIndex={flashIndex}
-                onError={setError}
-                open={sourcesOpen}
-                onClose={() => setSourcesOpen(false)}
-              />
+              {/* Resizable Divider between Chat and Document Viewer */}
+              {viewerOpen && activeDocument && (
+                <div
+                  className="hidden lg:block w-1.5 bg-surface-200 hover:bg-brand-500 cursor-col-resize transition-colors dark:bg-surface-800"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    const onMouseMove = (moveEvent: MouseEvent) => {
+                      const containerWidth = window.innerWidth;
+                      const newRatio = Math.min(75, Math.max(30, (moveEvent.clientX / containerWidth) * 100));
+                      setSplitRatio(newRatio);
+                    };
+                    const onMouseUp = () => {
+                      window.removeEventListener('mousemove', onMouseMove);
+                      window.removeEventListener('mouseup', onMouseUp);
+                    };
+                    window.addEventListener('mousemove', onMouseMove);
+                    window.addEventListener('mouseup', onMouseUp);
+                  }}
+                  title="Drag to resize split view"
+                />
+              )}
+
+              {/* Right Document Viewer Pane */}
+              {viewerOpen && activeDocument ? (
+                <div
+                  className="flex-1 flex min-w-0 h-full overflow-hidden"
+                  style={typeof window !== 'undefined' && window.innerWidth >= 1024 ? { width: `${100 - splitRatio}%` } : undefined}
+                >
+                  <DocumentViewer
+                    sessionId={currentId || (sessions[0]?.id) || ''}
+                    activeDocument={activeDocument}
+                    activeCitation={activeCitation}
+                    allCitations={citations}
+                    onSelectCitation={(cit) => {
+                      setActiveCitation(cit);
+                      setActiveDocument(cit.file);
+                    }}
+                    onClose={() => setViewerOpen(false)}
+                    isSplitView={true}
+                  />
+                </div>
+              ) : (
+                <SourcesPanel
+                  citations={citations}
+                  flashIndex={flashIndex}
+                  onError={setError}
+                  open={sourcesOpen}
+                  onClose={() => setSourcesOpen(false)}
+                />
+              )}
             </div>
           </div>
         </div>
