@@ -250,7 +250,7 @@ test.describe('Stage 4: Enterprise Evidence & Document Viewer', () => {
     await expect(viewer.getByRole('heading', { name: /Annotations & Evidence/i })).toBeVisible()
   })
 
-  test('clicking citation [3] for DOCX format displays safe text-level evidence fallback notice', async ({ page }) => {
+  test('clicking citation [3] for DOCX format displays verified text evidence with highlight and active evidence badge', async ({ page }) => {
     await page.goto('/')
 
     const sessionCard = page.locator('text=Rylands v Fletcher Liability Analysis').first()
@@ -268,8 +268,8 @@ test.describe('Stage 4: Enterprise Evidence & Document Viewer', () => {
     // Verify DOCX document name
     await expect(viewer.getByRole('heading', { name: 'Employment_Agreement_2024.docx' })).toBeVisible()
 
-    // Verify format notice fallback banner is present
-    await expect(viewer.getByText(/Page-level pagination is not applicable for DOCX documents/i)).toBeVisible()
+    // Verify active supporting evidence badge is present
+    await expect(viewer.getByText('Active Supporting Evidence')).toBeVisible()
 
     // Verify highlighted text in DOCX text
     const highlight = viewer.locator('mark')
@@ -368,5 +368,37 @@ test.describe('Stage 4: Enterprise Evidence & Document Viewer', () => {
     await expect(docSurface).toBeVisible()
     await expect(annSurface).toBeHidden()
     await expect(viewer.getByText('Page 1 of 11')).toBeVisible()
+  })
+
+  test('tablet viewport (768px) renders balanced split view and allows toggling Annotations', async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 })
+    await page.goto('/')
+
+    const sessionCard = page.locator('text=Rylands v Fletcher Liability Analysis').first()
+    await expect(sessionCard).toBeVisible({ timeout: 10000 })
+    await sessionCard.click()
+
+    const citation2 = page.locator('button[title*="source [2]"]').first()
+    await citation2.click()
+
+    const viewer = page.locator('[data-testid="evidence-document-viewer"]')
+    await expect(viewer).toBeVisible()
+
+    // Document surface is visible with readable text
+    const docSurface = page.locator('[data-testid="document-content-surface"]')
+    await expect(docSurface).toBeVisible()
+
+    // On 768px tablet, user can switch between Document and Annotations via responsive tabs
+    const annTab = page.locator('[data-testid="mobile-tab-annotations"]')
+    const docTab = page.locator('[data-testid="mobile-tab-document"]')
+    await expect(annTab).toBeVisible()
+    await expect(docTab).toBeVisible()
+
+    await annTab.click()
+    const annSurface = page.locator('[data-testid="annotations-surface"]')
+    await expect(annSurface).toBeVisible()
+
+    await docTab.click()
+    await expect(docSurface).toBeVisible()
   })
 })

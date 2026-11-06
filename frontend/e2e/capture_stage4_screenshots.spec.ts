@@ -296,6 +296,11 @@ test.describe('Stage 4 Screenshots Capture', () => {
     })
 
     // 5. Evidence sidebar with multiple citations
+    const toggleBtn = viewer.locator('[data-testid="toggle-annotations-btn"]').first()
+    if (await toggleBtn.isVisible()) {
+      await toggleBtn.click()
+      await page.waitForTimeout(400)
+    }
     await page.screenshot({
       path: path.join(ARTIFACT_DIR, 'screenshot_stage4_evidence_sidebar_multiple_citations.png'),
     })
@@ -305,16 +310,31 @@ test.describe('Stage 4 Screenshots Capture', () => {
     if (await hindiAnn.isVisible()) {
       await hindiAnn.click()
       await page.waitForTimeout(600)
+      // Toggle annotations closed so document takes full width without squeezing
+      if (await toggleBtn.isVisible()) {
+        await toggleBtn.click()
+        await page.waitForTimeout(400)
+      }
       await page.screenshot({
         path: path.join(ARTIFACT_DIR, 'screenshot_stage4_hindi_devanagari_evidence.png'),
       })
+      // Re-open annotations for DOCX selection
+      if (await toggleBtn.isVisible()) {
+        await toggleBtn.click()
+        await page.waitForTimeout(400)
+      }
     }
 
-    // 7. Unsupported or missing page metadata fallback (DOCX)
+    // 7. Text-level evidence document view (DOCX)
     const docxAnn = viewer.locator('[data-testid="annotation-card-3"]').first()
     if (await docxAnn.isVisible()) {
       await docxAnn.click()
       await page.waitForTimeout(600)
+      // Close annotations so document is full width and perfectly readable
+      if (await toggleBtn.isVisible()) {
+        await toggleBtn.click()
+        await page.waitForTimeout(400)
+      }
       await page.screenshot({
         path: path.join(ARTIFACT_DIR, 'screenshot_stage4_missing_page_metadata_fallback.png'),
       })

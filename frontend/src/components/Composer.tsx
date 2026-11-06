@@ -366,15 +366,15 @@ export default function Composer({
                       {formatSize(att.file.size)} &middot; {att.type}
                     </p>
                     {att.type === 'audio' && (
-                      <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.2 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" title="Audio is transcribed locally via on-premise Whisper">
+                      <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.2 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" title="Saved audio file is processed on-premise using local Whisper (/api/transcribe)">
                         <ShieldCheck className="h-2.5 w-2.5" />
-                        100% Offline Whisper
+                        Local Whisper (Air-Gapped Processing)
                       </span>
                     )}
                   </div>
                   {att.transcribing && (
                     <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
-                      <Loader2 className="h-2.5 w-2.5 animate-spin" /> Transcribing speech locally...
+                      <Loader2 className="h-2.5 w-2.5 animate-spin" /> Transcribing via local Whisper...
                     </span>
                   )}
                   {att.transcript && (
@@ -429,11 +429,14 @@ export default function Composer({
               </button>
             </div>
             {/* Speech Recognition & Offline Privacy Disclosure */}
-            <div className="flex items-start gap-1.5 text-[11px] text-rose-900 dark:text-rose-300 border-t border-rose-200/80 dark:border-rose-900/60 pt-2 leading-relaxed">
-              <ShieldCheck className="h-3.5 w-3.5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-              <span>
-                <strong>Speech Privacy:</strong> Live dictation streams via browser Web Speech API. Stopping recording generates a local audio file transcribed 100% on-premises via local Whisper without third-party network egress.
-              </span>
+            <div className="flex items-start gap-2 text-[11px] text-surface-700 dark:text-surface-300 border-t border-rose-200/80 dark:border-rose-900/60 pt-2.5 leading-relaxed bg-white/70 dark:bg-surface-850/70 rounded-lg p-2.5 mt-2">
+              <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5 text-brand-600 dark:text-brand-400" />
+              <div>
+                <p className="font-semibold text-surface-900 dark:text-surface-100">Live Dictation uses Browser Speech Service (Online)</p>
+                <p className="text-[10px] text-surface-600 dark:text-surface-400 mt-0.5">
+                  Real-time dictation text streams through your browser vendor's recognition engine (Google/Apple cloud). Once you click "Done Recording", the saved audio file is processed 100% locally and privately by on-premises Whisper with zero cloud egress.
+                </p>
+              </div>
             </div>
           </div>
         )}

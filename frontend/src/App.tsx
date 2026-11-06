@@ -605,7 +605,7 @@ export default function App() {
             provider={provider}
             onSelectProvider={selectProvider}
             onError={setError}
-            collapsed={sidebarCollapsed}
+            collapsed={viewerOpen ? true : sidebarCollapsed}
             modelsCollapsed={modelsCollapsed}
             onToggleCollapse={() => {
               if (window.innerWidth < 768) {

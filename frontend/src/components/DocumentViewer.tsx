@@ -48,6 +48,7 @@ export default function DocumentViewer({
   const [searchQuery, setSearchQuery] = useState('')
   const [fullWidth, setFullWidth] = useState(false)
   const [mobileTab, setMobileTab] = useState<'document' | 'annotations'>('document')
+  const [showAnnotations, setShowAnnotations] = useState(true)
 
   const textContainerRef = useRef<HTMLDivElement>(null)
   const activeHighlightRef = useRef<HTMLElement | null>(null)
@@ -416,6 +417,24 @@ export default function DocumentViewer({
             {fullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
 
+          {/* Annotations Toggle Button */}
+          <button
+            type="button"
+            data-testid="toggle-annotations-btn"
+            onClick={() => setShowAnnotations(!showAnnotations)}
+            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
+              showAnnotations
+                ? 'bg-brand-50 border-brand-300 text-brand-700 dark:bg-brand-950 dark:border-brand-800 dark:text-brand-300'
+                : 'bg-white border-surface-200 text-surface-600 hover:bg-surface-50 dark:bg-surface-800 dark:border-surface-700 dark:text-surface-300'
+            }`}
+            title="Toggle Annotations sidebar"
+          >
+            <span>Annotations</span>
+            <span className="rounded-full bg-brand-100 dark:bg-brand-900 px-1.5 py-0.2 text-[10px] font-mono font-bold text-brand-700 dark:text-brand-300">
+              {docCitations.length}
+            </span>
+          </button>
+
           {/* Close Button */}
           <button
             type="button"
@@ -484,16 +503,6 @@ export default function DocumentViewer({
             </div>
           ) : (
             <div className="mx-auto w-full max-w-4xl space-y-4" style={{ zoom: `${zoomLevel}%` }}>
-              {/* Fallback Banner for Formats without Native Page Navigation */}
-              {!docContent?.has_pages && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200 flex items-start gap-2.5">
-                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-semibold">Notice:</span> Page-level pagination is not applicable for {docContent?.modality.toUpperCase()} documents. Displaying verified text evidence and supporting passages.
-                  </div>
-                </div>
-              )}
-
               {/* Active Citation Badge Banner */}
               {activeCitation && (
                 <div className="rounded-xl border border-brand-200 bg-brand-50/80 p-3 text-xs text-brand-900 dark:border-brand-900 dark:bg-brand-950/40 dark:text-brand-200 flex items-center justify-between shadow-2xs">
@@ -593,7 +602,7 @@ export default function DocumentViewer({
                 /* Interactive Evidence Text Viewer with Highlights */
                 <div
                   ref={textContainerRef}
-                  className="rounded-2xl border border-surface-200 bg-white p-4 sm:p-8 shadow-sm dark:border-surface-800 dark:bg-surface-900 font-sans text-sm leading-relaxed break-words"
+                  className="rounded-2xl border border-surface-200 bg-white p-6 sm:p-8 shadow-sm dark:border-surface-800 dark:bg-surface-900 font-sans text-sm leading-relaxed whitespace-pre-wrap"
                 >
                   {renderedTextWithHighlights}
                 </div>
@@ -602,11 +611,15 @@ export default function DocumentViewer({
           )}
         </div>
 
-        {/* 3. Evidence & Annotations Sidebar: full width on mobile when tab === 'annotations', fixed w-80 on lg */}
+        {/* 3. Evidence & Annotations Sidebar */}
         <div
           data-testid="annotations-surface"
           className={`border-l border-surface-200 bg-white dark:border-surface-800 dark:bg-surface-900 flex flex-col shrink-0 ${
-            mobileTab === 'annotations' ? 'flex w-full' : 'hidden lg:flex lg:w-80'
+            mobileTab === 'annotations'
+              ? 'flex w-full'
+              : showAnnotations
+              ? 'hidden lg:flex lg:w-72 2xl:w-80'
+              : 'hidden'
           }`}
         >
           {/* Mobile Back-to-Document Quick Action */}
