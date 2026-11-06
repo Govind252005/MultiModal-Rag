@@ -65,3 +65,4 @@ def test_rbac_admin_enforcement(tmp_path, monkeypatch):
     )
     assert res.status_code == 200
     assert res.json()["role"] == "viewer"
+

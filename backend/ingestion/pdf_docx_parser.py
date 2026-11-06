@@ -39,7 +39,16 @@ _SECTION_NAMES = (
 
 def _section_heading(line: str) -> Optional[str]:
     """Return a normalized section name for a heading-like line."""
-    value = re.sub(r"\s+", " ", (line or "").strip().lower())
+    clean = (line or "").strip()
+    if not clean:
+        return None
+
+    # Support Markdown headings: '# Heading', '## Heading', etc.
+    md_match = re.match(r"^#{1,6}\s+(.+)$", clean)
+    if md_match:
+        return md_match.group(1).strip()
+
+    value = re.sub(r"\s+", " ", clean.lower())
     value = re.sub(r"^[\d.\s)]+", "", value)
     value = value.replace("–", "-").replace("—", "-")
     value = re.split(r"\s*[-:|]\s*", value, maxsplit=1)[0].strip()
@@ -69,7 +78,9 @@ def _section_segments(text: str, current: Optional[str] = None):
 
 
 def _record(text: str, file: str, page, source_type: str = "text",
-            section: Optional[str] = None) -> Dict[str, Any]:
+            section: Optional[str] = None, extra_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from backend.nlp.language_detect import detect_language
+    lang_info = detect_language(text)
     record = {
         "target": "text",
         "text": text,
@@ -78,10 +89,15 @@ def _record(text: str, file: str, page, source_type: str = "text",
             "modality": "document",
             "source_type": source_type,
             "page": page,
+            "lang": lang_info["language"],
+            "script": lang_info["script"],
+            "char_count": len(text),
         },
     }
     if section:
         record["metadata"]["section"] = section
+    if extra_meta:
+        record["metadata"].update(extra_meta)
     return record
 
 
@@ -148,7 +164,7 @@ def parse_pdf(path: str, image_dir: Optional[Path] = None,
                                            section=section))
 
             if extract_tables:  # brief §44: skippable outside MAX_QUALITY
-                records.extend(_table_records(page, page_no, file))
+                records.extend(_table_records(page, page_no, file, section=current_section))
 
             if not extract_embedded_images:  # brief §44: skippable outside MAX_QUALITY
                 continue
@@ -181,7 +197,7 @@ def parse_pdf(path: str, image_dir: Optional[Path] = None,
     return records
 
 
-def _table_records(page, page_no: int, file: str) -> List[Dict[str, Any]]:
+def _table_records(page, page_no: int, file: str, section: Optional[str] = None) -> List[Dict[str, Any]]:
     """Extract tables from a PDF page via PyMuPDF find_tables()."""
     records: List[Dict[str, Any]] = []
     try:
@@ -197,17 +213,7 @@ def _table_records(page, page_no: int, file: str) -> List[Dict[str, Any]]:
             text = "\n".join(lines).strip()
             if not text:
                 continue
-            records.append({
-                "target": "text",
-                "text": text,
-                "metadata": {
-                    "file": file,
-                    "modality": "document",
-                    "source_type": "table",
-                    "page": page_no,
-                    "section": current_section,
-                },
-            })
+            records.append(_record(text, file, page_no, source_type="table", section=section))
     except Exception as exc:
         print(f"[pdf] table extraction p.{page_no}: {exc}")
     return records
@@ -279,6 +285,136 @@ def parse_docx(path: str, image_dir: Optional[Path] = None,
 
 
 # ------------------------------------------------------------------
+# PPTX
+# ------------------------------------------------------------------
+def parse_pptx(path: str, image_dir: Optional[Path] = None,
+               extract_tables: bool = True,
+               extract_embedded_images: bool = True) -> List[Dict[str, Any]]:
+    """Parse PowerPoint presentation slides, tables, and images."""
+    import pptx
+    from PIL import Image
+
+    file = Path(path).name
+    records: List[Dict[str, Any]] = []
+    prs = pptx.Presentation(path)
+    extracted_imgs = 0
+
+    for slide_idx, slide in enumerate(prs.slides):
+        slide_no = slide_idx + 1
+        slide_texts: List[str] = []
+        slide_title = None
+
+        if slide.shapes.title and slide.shapes.title.text.strip():
+            slide_title = slide.shapes.title.text.strip()
+            slide_texts.append(slide_title)
+
+        for shape in slide.shapes:
+            if shape == slide.shapes.title:
+                continue
+            if shape.has_text_frame:
+                txt = shape.text_frame.text.strip()
+                if txt:
+                    slide_texts.append(txt)
+            elif shape.has_table and extract_tables:
+                rows_text = []
+                for row in shape.table.rows:
+                    row_cells = [c.text.strip() for c in row.cells]
+                    if any(row_cells):
+                        rows_text.append(" | ".join(row_cells))
+                if rows_text:
+                    table_content = "\n".join(rows_text)
+                    records.append(_record(table_content, file, slide_no,
+                                           source_type="table", section=slide_title))
+            elif extract_embedded_images and shape.shape_type == 13:  # 13 is PICTURE
+                if extracted_imgs < _MAX_IMGS:
+                    try:
+                        img_bytes = shape.image.blob
+                        pil = enforce_image_limits(
+                            Image.open(io.BytesIO(img_bytes)).convert("RGB"),
+                            context=f"{file} slide {slide_no} image",
+                        )
+                        if pil.width >= _MIN_W and pil.height >= _MIN_H:
+                            extracted_imgs += 1
+                            records.extend(_image_records(pil, file, image_dir, slide_no, extracted_imgs))
+                    except Exception as exc:
+                        print(f"[pptx] image extraction slide {slide_no}: {exc}")
+
+        combined_text = "\n\n".join(slide_texts).strip()
+        if combined_text:
+            for chunk in chunk_text(combined_text):
+                records.append(_record(chunk, file, slide_no, section=slide_title))
+
+    return records
+
+
+# ------------------------------------------------------------------
+# XLSX
+# ------------------------------------------------------------------
+def parse_xlsx(path: str, max_rows_per_sheet: int = 5000) -> List[Dict[str, Any]]:
+    """Parse Excel spreadsheet sheets into row blocks with table structure."""
+    import openpyxl
+
+    file = Path(path).name
+    records: List[Dict[str, Any]] = []
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+
+    try:
+        for sheet_idx, sheet_name in enumerate(wb.sheetnames):
+            sheet = wb[sheet_name]
+            sheet_no = sheet_idx + 1
+            rows_data: List[str] = []
+
+            for r_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+                if r_idx >= max_rows_per_sheet:
+                    break
+                row_vals = [str(c).strip() for c in row if c is not None and str(c).strip()]
+                if row_vals:
+                    rows_data.append(" | ".join(row_vals))
+
+            if not rows_data:
+                continue
+
+            batch_size = 20
+            for b_idx in range(0, len(rows_data), batch_size):
+                block_text = f"Sheet: {sheet_name}\n" + "\n".join(rows_data[b_idx:b_idx+batch_size])
+                records.append(_record(block_text, file, sheet_no,
+                                       source_type="spreadsheet", section=sheet_name))
+    finally:
+        wb.close()
+
+    return records
+
+
+# ------------------------------------------------------------------
+# Plain Text / Markdown / CSV
+# ------------------------------------------------------------------
+def parse_text_file(path: str) -> List[Dict[str, Any]]:
+    """Parse plain text, Markdown, or CSV files."""
+    file = Path(path).name
+    records: List[Dict[str, Any]] = []
+
+    content = ""
+    for enc in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
+        try:
+            with open(path, "r", encoding=enc) as f:
+                content = f.read()
+            break
+        except UnicodeDecodeError:
+            continue
+
+    if not content.strip():
+        return records
+
+    segments, _ = _section_segments(content)
+    page = 1
+    for section, segment in segments:
+        for chunk in chunk_text(segment):
+            records.append(_record(chunk, file, page, section=section))
+
+    return records
+
+
+# ------------------------------------------------------------------
 # Dispatcher
 # ------------------------------------------------------------------
 def parse_document(path: str, image_dir: Optional[Path] = None,
@@ -297,4 +433,20 @@ def parse_document(path: str, image_dir: Optional[Path] = None,
             validate_docx_safety(path)
         return parse_docx(path, image_dir=image_dir,
                           extract_embedded_images=extract_embedded_images)
+    if ext in (".pptx", ".ppt"):
+        from backend.ingestion.doc_safety import validate_pptx_safety
+        if ext == ".pptx":
+            validate_pptx_safety(path)
+        return parse_pptx(path, image_dir=image_dir,
+                          extract_tables=extract_tables,
+                          extract_embedded_images=extract_embedded_images)
+    if ext in (".xlsx", ".xls"):
+        from backend.ingestion.doc_safety import validate_xlsx_safety
+        if ext == ".xlsx":
+            validate_xlsx_safety(path)
+        return parse_xlsx(path)
+    if ext in (".txt", ".md", ".csv", ".json", ".log"):
+        from backend.ingestion.doc_safety import validate_text_safety
+        validate_text_safety(path)
+        return parse_text_file(path)
     raise ValueError(f"Unsupported document type: {ext}")

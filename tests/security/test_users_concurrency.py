@@ -69,3 +69,4 @@ def test_concurrent_duplicate_registration_handled_cleanly():
     successful = [r for r in results if r is not None]
     assert len(successful) == 1
     assert auth.authenticate(email, password) is not None
+

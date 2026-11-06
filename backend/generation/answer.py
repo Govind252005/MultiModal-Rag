@@ -224,14 +224,11 @@ def _needs_finalization(text: str) -> bool:
 
 
 def _enforce_clean_answer(text: str) -> str:
-    """Never expose a draft that still contains visible model reasoning."""
+    """Never expose a draft that still contains visible model reasoning.
+    Never fabricate citation numbers (brief Phase 4 §10 / rule #9)."""
     if _needs_finalization(text):
         return prompt_templates.MISSING_CONTEXT_MESSAGE
-    cleaned = text.strip()
-    if cleaned and cleaned != prompt_templates.MISSING_CONTEXT_MESSAGE and not _CITATION_RE.search(cleaned):
-        # Attribute to top evidence rather than falsely rejecting a valid answer
-        return f"{cleaned} [1]"
-    return cleaned
+    return text.strip()
 
 
 def _restrict_citations_to_answer(
@@ -343,11 +340,15 @@ def prepare_answer_context(
     hits = prompt_templates.truncate_hits_to_budget(hits)
     citations = [_citation(i, h) for i, h in enumerate(hits, start=1)]
     _add_confidence(citations)
+
+    from backend.nlp import language_detect
+    q_lang = language_detect.detect_language(query).get("language", "en")
     return {
         "system": prompt_templates.SYSTEM_PROMPT,
-        "user": prompt_templates.build_user_prompt(query, hits),
+        "user": prompt_templates.build_user_prompt(query, hits, target_lang=q_lang),
         "history": [],
         "citations": citations,
+        "query_language": q_lang,
         "image_paths": _image_paths_from_hits(hits, session_dir) or None,
     }
 

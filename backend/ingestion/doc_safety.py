@@ -24,15 +24,15 @@ class IngestionSafetyError(ValueError):
     pass
 
 
-def validate_docx_safety(path: str) -> None:
-    """Validate DOCX zip archive structure to prevent zip bombs, path traversal,
-    and archive decompression exhaustion attacks."""
+def validate_archive_safety(path: str, format_name: str = "Archive") -> None:
+    """Validate zip archive structure to prevent zip bombs, path traversal,
+    and archive decompression exhaustion attacks (supports DOCX, PPTX, XLSX)."""
     p = Path(path)
     if not p.exists():
         raise IngestionSafetyError(f"File not found: {p.name}")
 
     if not zipfile.is_zipfile(path):
-        raise IngestionSafetyError("Invalid DOCX file: Not a valid zip archive.")
+        raise IngestionSafetyError(f"Invalid {format_name} file: Not a valid zip archive.")
 
     total_uncompressed = 0
     total_compressed = 0
@@ -45,14 +45,14 @@ def validate_docx_safety(path: str) -> None:
 
             if entry_count > MAX_ARCHIVE_ENTRIES:
                 raise IngestionSafetyError(
-                    f"DOCX archive contains too many files ({entry_count} > {MAX_ARCHIVE_ENTRIES})."
+                    f"{format_name} archive contains too many files ({entry_count} > {MAX_ARCHIVE_ENTRIES})."
                 )
 
             for info in infolist:
                 # Check path traversal in entry names
                 entry_name = info.filename
                 if ".." in entry_name or entry_name.startswith(("/", "\\")):
-                    raise IngestionSafetyError("DOCX archive contains unsafe file paths.")
+                    raise IngestionSafetyError(f"{format_name} archive contains unsafe file paths.")
 
                 total_uncompressed += info.file_size
                 total_compressed += info.compress_size
@@ -60,7 +60,7 @@ def validate_docx_safety(path: str) -> None:
                 # Check total uncompressed size limit
                 if total_uncompressed > MAX_UNCOMPRESSED_ARCHIVE_BYTES:
                     raise IngestionSafetyError(
-                        f"DOCX uncompressed size exceeds limit of {MAX_UNCOMPRESSED_ARCHIVE_BYTES // (1024*1024)}MB."
+                        f"{format_name} uncompressed size exceeds limit of {MAX_UNCOMPRESSED_ARCHIVE_BYTES // (1024*1024)}MB."
                     )
 
             # Check compression ratio for zip bombs
@@ -68,11 +68,36 @@ def validate_docx_safety(path: str) -> None:
                 ratio = total_uncompressed / total_compressed
                 if ratio > MAX_COMPRESSION_RATIO:
                     raise IngestionSafetyError(
-                        f"DOCX compression ratio ({ratio:.1f}:1) exceeds safety threshold (possible zip bomb)."
+                        f"{format_name} compression ratio ({ratio:.1f}:1) exceeds safety threshold (possible zip bomb)."
                     )
 
     except zipfile.BadZipFile:
-        raise IngestionSafetyError("Malformed or corrupted DOCX archive.")
+        raise IngestionSafetyError(f"Malformed or corrupted {format_name} archive.")
+
+
+def validate_docx_safety(path: str) -> None:
+    """Validate DOCX zip archive safety."""
+    validate_archive_safety(path, format_name="DOCX")
+
+
+def validate_pptx_safety(path: str) -> None:
+    """Validate PPTX zip archive safety."""
+    validate_archive_safety(path, format_name="PPTX")
+
+
+def validate_xlsx_safety(path: str) -> None:
+    """Validate XLSX zip archive safety."""
+    validate_archive_safety(path, format_name="XLSX")
+
+
+def validate_text_safety(path: str, max_size_mb: float = 50.0) -> None:
+    """Validate plain text/markdown/CSV file size."""
+    p = Path(path)
+    if not p.exists():
+        raise IngestionSafetyError(f"File not found: {p.name}")
+    size_mb = p.stat().st_size / (1024 * 1024)
+    if size_mb > max_size_mb:
+        raise IngestionSafetyError(f"Text file size ({size_mb:.1f}MB) exceeds limit of {max_size_mb}MB.")
 
 
 def validate_pdf_safety(path: str) -> None:
@@ -101,3 +126,4 @@ def validate_pdf_safety(path: str) -> None:
         if isinstance(exc, IngestionSafetyError):
             raise
         raise IngestionSafetyError(f"Corrupted or unreadable PDF: {exc}")
+

@@ -174,11 +174,25 @@ def _rrf_merge(rank_lists: List[List[Dict[str, Any]]], k: int) -> List[Dict[str,
     return merged
 
 #--reranker helper--
+def _is_english_only_reranker(model_name: str) -> bool:
+    name = (model_name or "").lower()
+    return "ms-marco" in name or "english" in name
+
+
 def _rerank(query: str, hits: List[Dict[str, Any]], top_n: int) -> List[Dict[str, Any]]:
     if not hits:
         return []
 
     if not config.RERANK_ENABLED:
+        return hits[:top_n]
+
+    from backend.nlp import language_detect
+    q_script = language_detect.detect_script(query)
+
+    # Intelligent reranker safety: If the active model is English-only (like ms-marco)
+    # and the query is in Devanagari, Arabic, or CJK, the English tokenizer maps all tokens
+    # to [UNK], destroying valid dense multilingual retrieval. Preserve RRF fusion order.
+    if _is_english_only_reranker(config.RERANK_MODEL) and q_script != "Latin":
         return hits[:top_n]
 
     try:

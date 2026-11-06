@@ -1,0 +1,123 @@
+[
+  {
+    "id": "ml_001_en_en",
+    "scenario": "en_doc_en_query",
+    "doc_lang": "en",
+    "query_lang": "en",
+    "source_file": "rag_architecture_spec.pdf",
+    "page": 1,
+    "document_text": "The offline Multimodal RAG system utilizes an inverted index with SQLite FTS5 for BM25 lexical retrieval and ChromaDB with cosine similarity for dense semantic vector matching. Fusion is performed using Reciprocal Rank Fusion with a k constant of 60.",
+    "query": "What fusion algorithm and constant are used to merge lexical and dense retrieval?",
+    "expected_answer": "Reciprocal Rank Fusion (RRF) with a k constant of 60.",
+    "relevant_chunk_ids": ["ml_chunk_001"]
+  },
+  {
+    "id": "ml_002_en_hi",
+    "scenario": "en_doc_hi_query",
+    "doc_lang": "en",
+    "query_lang": "hi",
+    "source_file": "financial_annual_report_2025.pdf",
+    "page": 4,
+    "document_text": "In fiscal year 2025, cloud infrastructure operating costs were reduced by 34% through local model quantization and batch inference optimization on RTX hardware.",
+    "query": "वित्तीय वर्ष 2025 में क्लाउड इन्फ्रास्ट्रक्चर की परिचालन लागत में कितने प्रतिशत की कमी आई?",
+    "expected_answer": "34% की कमी आई।",
+    "relevant_chunk_ids": ["ml_chunk_002"]
+  },
+  {
+    "id": "ml_003_hi_en",
+    "scenario": "hi_doc_en_query",
+    "doc_lang": "hi",
+    "query_lang": "en",
+    "source_file": "delhi_technological_policy.pdf",
+    "page": 2,
+    "document_text": "भारतीय कृत्रिम बुद्धिमत्ता मिशन के अंतर्गत अनुसंधान एवं विकास परियोजनाओं के लिए 10,000 करोड़ रुपये का बजट स्वीकृत किया गया है। यह राशि अगले पाँच वर्षों में वितरित की जाएगी।",
+    "query": "How much budget was sanctioned for AI research and development under the mission?",
+    "expected_answer": "Rs 10,000 crore was sanctioned over the next five years.",
+    "relevant_chunk_ids": ["ml_chunk_003"]
+  },
+  {
+    "id": "ml_004_hi_hi",
+    "scenario": "hi_doc_hi_query",
+    "doc_lang": "hi",
+    "query_lang": "hi",
+    "source_file": "cyber_security_compliance.pdf",
+    "page": 3,
+    "document_text": "डेटा गोपनीयता विनियमों के अनुसार, सभी संवेदनशील कॉर्पोरेट रिकॉर्ड्स को एईएस-256 (AES-256) एन्क्रिप्शन मानकों के साथ संग्रहीत किया जाना अनिवार्य है। अनधिकृत पहुँच पर सख्त कानूनी दंड लागू होंगे।",
+    "query": "कॉर्पोरेट रिकॉर्ड्स को किस एन्क्रिप्शन मानक के साथ सुरक्षित रखना अनिवार्य है?",
+    "expected_answer": "एईएस-256 (AES-256) एन्क्रिप्शन मानक।",
+    "relevant_chunk_ids": ["ml_chunk_004"]
+  },
+  {
+    "id": "ml_005_mixed_hinglish",
+    "scenario": "mixed_doc_hinglish_query",
+    "doc_lang": "hinglish",
+    "query_lang": "hinglish",
+    "source_file": "devops_deployment_guide.docx",
+    "page": 1,
+    "document_text": "Production environment me Ollama daemon port 11434 pe bind hota hai aur FastAPI backend port 8000 pe serve karta hai. Cross-Origin Resource Sharing (CORS) strictly localhost tak restricted hai.",
+    "query": "FastAPI backend aur Ollama daemon konse ports pe chalte hain?",
+    "expected_answer": "FastAPI backend port 8000 pe aur Ollama daemon port 11434 pe chalte hain.",
+    "relevant_chunk_ids": ["ml_chunk_005"]
+  },
+  {
+    "id": "ml_006_cross_es_en",
+    "scenario": "multilingual_cross_lingual",
+    "doc_lang": "es",
+    "query_lang": "en",
+    "source_file": "contrato_servicios_madrid.pdf",
+    "page": 2,
+    "document_text": "El período de garantía para todo el software implementado es de doce meses contados a partir de la firma de aceptación final.",
+    "query": "What is the warranty period for the software starting from final acceptance?",
+    "expected_answer": "The warranty period is twelve months (12 months).",
+    "relevant_chunk_ids": ["ml_chunk_006"]
+  },
+  {
+    "id": "ml_007_cross_fr_en",
+    "scenario": "multilingual_cross_lingual",
+    "doc_lang": "fr",
+    "query_lang": "en",
+    "source_file": "accord_confidentialite_paris.pdf",
+    "page": 1,
+    "document_text": "Toutes les informations confidentielles doivent être détruites ou restituées dans un délai de trente jours suivant la résiliation du présent contrat.",
+    "query": "Within how many days must confidential information be destroyed after contract termination?",
+    "expected_answer": "Within 30 days (trente jours).",
+    "relevant_chunk_ids": ["ml_chunk_007"]
+  },
+  {
+    "id": "ml_008_cross_de_en",
+    "scenario": "multilingual_cross_lingual",
+    "doc_lang": "de",
+    "query_lang": "en",
+    "source_file": "datenschutz_richtlinie_berlin.pdf",
+    "page": 5,
+    "document_text": "Die Speicherdauer von Server-Protokolldaten beträgt maximal sieben Tage, sofern keine gesetzlichen Aufbewahrungspflichten entgegenstehen.",
+    "query": "What is the maximum retention period for server log data?",
+    "expected_answer": "Maximum of seven days (7 days).",
+    "relevant_chunk_ids": ["ml_chunk_008"]
+  },
+  {
+    "id": "ml_009_cross_ar_en",
+    "scenario": "multilingual_cross_lingual",
+    "doc_lang": "ar",
+    "query_lang": "en",
+    "source_file": "dubai_ai_charter.pdf",
+    "page": 1,
+    "document_text": "يهدف ميثاق الذكاء الاصطناعي إلى تدريب أكثر من مائة ألف مهندس على تقنيات النماذج التوليدية بحلول عام 2030.",
+    "query": "How many engineers does the AI charter aim to train by 2030?",
+    "expected_answer": "More than 100,000 engineers (مائة ألف مهندس).",
+    "relevant_chunk_ids": ["ml_chunk_009"]
+  },
+  {
+    "id": "ml_010_en_hi_detail",
+    "scenario": "en_doc_hi_query",
+    "doc_lang": "en",
+    "query_lang": "hi",
+    "source_file": "multimodal_vision_benchmark.pdf",
+    "page": 3,
+    "document_text": "The vision-language CLIP model ViT-B/32 generates 512-dimensional normalized embeddings for both raster images and text queries to enable zero-shot cross-modal retrieval.",
+    "query": "विज़न-लैंग्वेज क्लिप (CLIP) मॉडल कितने आयाम (dimensions) के एम्बेडिंग उत्पन्न करता है?",
+    "expected_answer": "512-आयामी (512-dimensional) सामान्यीकृत एम्बेडिंग।",
+    "relevant_chunk_ids": ["ml_chunk_010"]
+  }
+]
+

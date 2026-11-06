@@ -105,6 +105,10 @@ _CHECKS = {
     ".pdf": (_is_pdf,),
     ".docx": (_is_zip_based,),
     ".doc": (_is_ole2, _is_zip_based),  # some ".doc" uploads are actually docx-renamed
+    ".pptx": (_is_zip_based,),
+    ".ppt": (_is_ole2, _is_zip_based),
+    ".xlsx": (_is_zip_based,),
+    ".xls": (_is_ole2, _is_zip_based),
     ".png": (_is_png,),
     ".jpg": (_is_jpeg,),
     ".jpeg": (_is_jpeg,),

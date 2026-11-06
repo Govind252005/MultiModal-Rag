@@ -58,3 +58,4 @@ async def test_async_non_blocking_embeddings():
 
     assert vec.shape == (1, 384)
     assert latency_ms > 0
+

@@ -23,7 +23,10 @@ from typing import Any, Dict, List, Optional
 from backend import config
 from backend.observability import metrics as obs_metrics
 from backend.retrieval import embeddings, vector_store
-DOC_EXT = {".pdf", ".docx", ".doc"}
+DOC_EXT = {
+    ".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls",
+    ".txt", ".csv", ".md", ".json", ".log"
+}
 IMG_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp", ".gif"}
 AUD_EXT = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"}
 

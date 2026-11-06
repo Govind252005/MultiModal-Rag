@@ -70,3 +70,4 @@ def test_pdf_page_limit_enforcement(tmp_path, monkeypatch):
     with pytest.raises(IngestionSafetyError) as exc_info:
         validate_pdf_safety(str(pdf_path))
     assert "maximum page limit" in str(exc_info.value).lower()
+

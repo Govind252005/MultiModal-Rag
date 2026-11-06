@@ -52,9 +52,15 @@ for _p in (DATA_DIR, STORE_DIR, CHROMA_DIR, SESSIONS_DIR):
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # ------------------------------------------------------------------ Embeddings
+EMBED_DIM_MAP = {
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": 384,
+    "BAAI/bge-m3": 1024,
+    "intfloat/multilingual-e5-large": 1024,
+    "intfloat/multilingual-e5-base": 768,
+}
 TEXT_EMBED_MODEL = os.getenv(
     "TEXT_EMBED_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-TEXT_EMBED_DIM = 384
+TEXT_EMBED_DIM = EMBED_DIM_MAP.get(TEXT_EMBED_MODEL, int(os.getenv("TEXT_EMBED_DIM", "384")))
 CLIP_MODEL = "clip-ViT-B-32"
 CLIP_EMBED_DIM = 512
 EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
@@ -224,8 +230,11 @@ SESSION_RETENTION_DAYS = int(os.getenv("SESSION_RETENTION_DAYS", "0"))
 EVAL_REPORT_RETENTION_DAYS = int(os.getenv("EVAL_REPORT_RETENTION_DAYS", "0"))
 
 # ------------------------------------------------------------------ Chroma
-TEXT_COLLECTION = "rag_text"
-IMAGE_COLLECTION = "rag_image"
+# Versioned collection strategy: If TEXT_EMBED_MODEL is non-default, use a versioned collection name
+# so existing indexed vectors in rag_text are preserved and not corrupted by dimension mismatch.
+_COLLECTION_SUFFIX = "_bge_m3" if "bge-m3" in TEXT_EMBED_MODEL else ("_e5" if "e5" in TEXT_EMBED_MODEL else "")
+TEXT_COLLECTION = os.getenv("TEXT_COLLECTION", f"rag_text{_COLLECTION_SUFFIX}")
+IMAGE_COLLECTION = os.getenv("IMAGE_COLLECTION", "rag_image")
 
 # ------------------------------------------------------------------ LLM providers (hybrid local + cloud)
 # The RETRIEVAL pipeline never changes with the provider — only the final
