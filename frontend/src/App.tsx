@@ -12,10 +12,14 @@ import type {
   AuthUser,
   ProviderName,
   ActiveProviderResponse,
+  AppView,
 } from "./types";
 
+import { AppShell } from "./components/layout/AppShell";
+import { LandingPage } from "./pages/LandingPage";
+import { AuthPage } from "./pages/AuthPage";
+import { DashboardView } from "./pages/DashboardView";
 
-import Login from "./components/Login";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import LlmBanner from "./components/LlmBanner";
@@ -24,6 +28,7 @@ import Composer from "./components/Composer";
 import SourcesPanel from "./components/SourcesPanel";
 import LibraryPanel from "./components/LibraryPanel";
 import Toast from "./components/Toast";
+import ProviderPanel from "./components/ProviderPanel";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -50,6 +55,14 @@ export default function App() {
 
   // Auth --------------------------------------------------------------------
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [view, setView] = useState<AppView>(() => {
+    try {
+      if (window.location.pathname === '/landing') return 'landing';
+    } catch {
+      /* ignore */
+    }
+    return 'dashboard';
+  });
   const [authChecking, setAuthChecking] = useState(true);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -127,6 +140,15 @@ export default function App() {
   useEffect(() => {
     if (user) loadSessions();
   }, [user, loadSessions]);
+
+  // Load the most recent session's document library so the Dashboard displays genuine files
+  useEffect(() => {
+    if (user && sessions.length > 0 && !currentId) {
+      api.getSession(sessions[0].id).then((s) => {
+        if (s.files && s.files.length > 0) setFiles(s.files);
+      }).catch(() => {});
+    }
+  }, [user, sessions, currentId]);
 
   // Spec §51A.11: the backend is authoritative for "which provider is
   // currently active" — read it back on login instead of always assuming
@@ -470,89 +492,236 @@ export default function App() {
   // Render ------------------------------------------------------------------
   if (authChecking) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
+      <div className="flex h-screen items-center justify-center bg-surface-50 dark:bg-surface-950">
+        <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
       </div>
     );
   }
-  if (!user) return <Login onAuthed={setUser} />;
+
+  if (!user) {
+    if (view === 'landing') {
+      return <LandingPage onNavigate={setView} />;
+    }
+    return (
+      <AuthPage
+        initialMode={view === 'register' ? 'register' : 'login'}
+        onSuccess={(u) => {
+          setUser(u);
+          setView('dashboard');
+        }}
+        onNavigate={setView}
+      />
+    );
+  }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
-      <Sidebar
-        sessions={sessions}
-        currentId={currentId}
-        onNew={newChat}
-        onSelect={selectSession}
-        onDelete={deleteSession}
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        provider={provider}
-        onSelectProvider={selectProvider}
-        onError={setError}
-        collapsed={sidebarCollapsed}
-        modelsCollapsed={modelsCollapsed}
-        onToggleCollapse={() => {
-          if (window.innerWidth < 768) {
-            setSidebarOpen((prev) => !prev);
-            return;
-          }
-          setSidebarCollapsed((prev) => !prev);
-        }}
-        onToggleModels={() => setModelsCollapsed((prev) => !prev)}
-      />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          healthData={health}
-          activeProvider={activeProviderInfo}
-          loading={healthLoading}
-          onRefresh={loadHealth}
-          onOpenLibrary={() => setLibraryOpen(true)}
-          onOpenSidebar={() => setSidebarOpen(true)}
-          theme={theme}
-          onToggleTheme={toggleTheme}
+    <AppShell
+      currentView={view}
+      onNavigate={setView}
+      user={user}
+      onLogout={requestLogout}
+      activeProvider={activeProviderInfo}
+      health={health}
+      theme={theme}
+      onToggleTheme={toggleTheme}
+    >
+      {view === 'dashboard' && (
+        <DashboardView
           user={user}
-          onRequestLogout={requestLogout}
+          health={health}
+          sessions={sessions}
+          files={files}
+          activeProvider={activeProviderInfo}
+          onStartChat={() => {
+            newChat();
+            setView('chat');
+          }}
+          onSelectSession={(id) => {
+            selectSession(id);
+            setView('chat');
+          }}
+          onOpenUpload={() => setLibraryOpen(true)}
+          onNavigate={setView}
         />
+      )}
 
-        {health && !health.llm_available && <LlmBanner />}
-
-        <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col">
-            <ChatPanel
-              messages={messages}
-              onCitationClick={handleCitationClick}
-            />
-            <Composer
-              onSubmitText={handleTextQuery}
-              onImageQuery={handleImageQuery}
-              onAudioQuery={handleAudioQuery}
-              transcribeBlob={transcribeBlob}
-              onError={setError}
-              busy={busy}
-              scope={scope}
-              setScope={setScope}
-              files={files}
-              topK={topK}
-              setTopK={setTopK}
-            />
-          </div>
-
-          <SourcesPanel
-            citations={citations}
-            flashIndex={flashIndex}
+      {view === 'chat' && (
+        <div className="flex h-full min-h-0 flex-1 overflow-hidden">
+          <Sidebar
+            sessions={sessions}
+            currentId={currentId}
+            onNew={newChat}
+            onSelect={selectSession}
+            onDelete={deleteSession}
+            open={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+            provider={provider}
+            onSelectProvider={selectProvider}
             onError={setError}
-            open={sourcesOpen}
-            onClose={() => setSourcesOpen(false)}
+            collapsed={sidebarCollapsed}
+            modelsCollapsed={modelsCollapsed}
+            onToggleCollapse={() => {
+              if (window.innerWidth < 768) {
+                setSidebarOpen((prev) => !prev);
+                return;
+              }
+              setSidebarCollapsed((prev) => !prev);
+            }}
+            onToggleModels={() => setModelsCollapsed((prev) => !prev)}
+          />
+
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <Header
+              healthData={health}
+              activeProvider={activeProviderInfo}
+              loading={healthLoading}
+              onRefresh={loadHealth}
+              onOpenLibrary={() => setLibraryOpen(true)}
+              onOpenSidebar={() => setSidebarOpen(true)}
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              user={user}
+              onRequestLogout={requestLogout}
+            />
+
+            {health && !health.llm_available && <LlmBanner />}
+
+            <div className="flex min-h-0 flex-1">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <ChatPanel
+                  messages={messages}
+                  onCitationClick={handleCitationClick}
+                />
+                <Composer
+                  onSubmitText={handleTextQuery}
+                  onImageQuery={handleImageQuery}
+                  onAudioQuery={handleAudioQuery}
+                  transcribeBlob={transcribeBlob}
+                  onError={setError}
+                  busy={busy}
+                  scope={scope}
+                  setScope={setScope}
+                  files={files}
+                  topK={topK}
+                  setTopK={setTopK}
+                />
+              </div>
+
+              <SourcesPanel
+                citations={citations}
+                flashIndex={flashIndex}
+                onError={setError}
+                open={sourcesOpen}
+                onClose={() => setSourcesOpen(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === 'settings' && (
+        <div className="p-6 max-w-4xl mx-auto space-y-6">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
+              Model & Provider Settings
+            </h2>
+            <p className="text-xs text-surface-500 mt-1">
+              Configure local Ollama execution or cloud model credentials
+            </p>
+          </div>
+          <ProviderPanel
+            provider={provider}
+            onSelect={selectProvider}
+            onError={(msg) => setError(msg)}
+            collapsed={false}
+            showHeading={true}
           />
         </div>
-      </div>
+      )}
 
-      {citations.length > 0 && (
+      {view === 'documents' && (
+        <div className="p-6 max-w-5xl mx-auto space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
+                Document Management
+              </h2>
+              <p className="text-xs text-surface-500 mt-1">
+                Manage files, chunks, and multimodal knowledge records in current session
+              </p>
+            </div>
+            <button
+              onClick={() => setLibraryOpen(true)}
+              className="rounded-lg bg-brand-600 text-white px-4 py-2 text-xs font-medium hover:bg-brand-700 transition-colors shadow-sm"
+            >
+              Upload New Documents
+            </button>
+          </div>
+          <div className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 overflow-hidden shadow-subtle">
+            {files.length === 0 ? (
+              <div className="p-10 text-center text-xs text-surface-400">
+                No documents found in current session. Click "Upload New Documents" to index files.
+              </div>
+            ) : (
+              <table className="w-full text-left text-xs">
+                <thead className="bg-surface-50 dark:bg-surface-800/60 text-surface-500 border-b border-surface-200 dark:border-surface-800">
+                  <tr>
+                    <th className="p-3.5">Filename</th>
+                    <th className="p-3.5">Modality</th>
+                    <th className="p-3.5">Indexed Chunks</th>
+                    <th className="p-3.5">Ingested Date</th>
+                    <th className="p-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
+                  {files.map((f) => (
+                    <tr key={f.file} className="hover:bg-surface-50/50 dark:hover:bg-surface-800/30">
+                      <td className="p-3.5 font-medium text-surface-800 dark:text-surface-200">{f.file}</td>
+                      <td className="p-3.5 capitalize">{f.modality}</td>
+                      <td className="p-3.5">{f.chunks} chunks</td>
+                      <td className="p-3.5 text-surface-400">{f.ingested_at || 'Just now'}</td>
+                      <td className="p-3.5 text-right">
+                        <button
+                          onClick={() => deleteFile(f.file)}
+                          className="text-rose-600 hover:text-rose-700 font-medium"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'admin' && (
+        <div className="p-6 max-w-5xl mx-auto space-y-6">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
+              Enterprise Administration
+            </h2>
+            <p className="text-xs text-surface-500 mt-1">
+              Tenant isolation, user role management, and audit verification
+            </p>
+          </div>
+          <div className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-6 shadow-subtle space-y-4">
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+              <span className="font-semibold text-sm">Role-Based Access Control Enforced</span>
+            </div>
+            <p className="text-xs text-surface-600 dark:text-surface-400">
+              Your account has administrator privileges (<span className="font-mono text-brand-600 font-semibold">{user.role}</span>) for tenant organization <span className="font-mono text-brand-600 font-semibold">{user.org_id || 'default_org'}</span>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {citations.length > 0 && view === 'chat' && (
         <button
           onClick={() => setSourcesOpen(true)}
-          className="fixed bottom-24 right-4 z-20 flex items-center gap-1.5 rounded-full bg-accent-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg lg:hidden"
+          className="fixed bottom-24 right-4 z-20 flex items-center gap-1.5 rounded-full bg-brand-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg lg:hidden"
         >
           <PanelRight className="h-4 w-4" /> Sources ({citations.length})
         </button>
@@ -567,33 +736,35 @@ export default function App() {
         onDeleteFile={deleteFile}
         onError={setError}
       />
+
       {showLogoutConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-              Log out?
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-surface-950/50 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-surface-200 bg-white p-6 shadow-elevated dark:border-surface-800 dark:bg-surface-900">
+            <h3 className="text-base font-semibold text-surface-900 dark:text-surface-100">
+              Sign Out
             </h3>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-              Do you really want to log out?
+            <p className="mt-2 text-xs text-surface-500 dark:text-surface-400">
+              Are you sure you want to sign out of this workspace?
             </p>
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-5 flex justify-end gap-2.5">
               <button
                 onClick={() => setShowLogoutConfirm(false)}
-                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                className="rounded-lg border border-surface-200 px-3.5 py-1.5 text-xs font-medium text-surface-700 hover:bg-surface-50 dark:border-surface-700 dark:text-surface-300 dark:hover:bg-surface-800"
               >
-                No
+                Cancel
               </button>
               <button
                 onClick={confirmLogout}
-                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                className="rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-rose-700"
               >
-                Yes
+                Sign Out
               </button>
             </div>
           </div>
         </div>
       )}
+
       <Toast message={error} onClose={() => setError(null)} />
-    </div>
+    </AppShell>
   );
 }

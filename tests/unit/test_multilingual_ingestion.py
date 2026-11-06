@@ -143,3 +143,4 @@ def test_archive_safety_rejection():
             validate_xlsx_safety(temp_path)
     finally:
         Path(temp_path).unlink(missing_ok=True)
+

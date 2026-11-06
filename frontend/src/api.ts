@@ -315,3 +315,18 @@ export async function getMediaUrl(url: string): Promise<string> {
 
   return URL.createObjectURL(blob);
 }
+
+// ---- admin (RBAC-enforced) ------------------------------------------------
+export const adminListUsers = () =>
+  request<{ users: import('./types').AdminUserRecord[] }>('/api/admin/users').then((r) => r.users)
+
+export const adminSetRole = (email: string, role: string) =>
+  request<{ status: string; email: string; role: string }>(
+    `/api/admin/users/${encodeURIComponent(email)}/role`,
+    json({ role })
+  )
+
+export const adminSecurityEvents = (limit = 50, offset = 0) =>
+  request<{ events: import('./types').SecurityEventRecord[]; total: number }>(
+    `/api/admin/security-events?limit=${limit}&offset=${offset}`
+  )

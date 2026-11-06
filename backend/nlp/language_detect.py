@@ -104,3 +104,4 @@ def is_cross_lingual(query_lang: str, doc_lang: str) -> bool:
     if (q == "hinglish" and d == "hi") or (q == "hi" and d == "hinglish"):
         return False
     return True
+

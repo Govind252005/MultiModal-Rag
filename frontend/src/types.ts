@@ -112,8 +112,44 @@ export interface SourceDetail {
 
 // ---- Auth -----------------------------------------------------------------
 
-export interface AuthUser { id: string; email: string }
+export interface AuthUser {
+  id: string
+  email: string
+  role?: 'admin' | 'user' | 'super_admin' | string
+  org_id?: string
+  created_at?: string
+}
 export interface AuthResponse { token: string; user: AuthUser }
+
+export type AppView =
+  | 'landing'
+  | 'login'
+  | 'register'
+  | 'onboarding'
+  | 'dashboard'
+  | 'chat'
+  | 'documents'
+  | 'search'
+  | 'settings'
+  | 'admin'
+
+export interface AdminUserRecord {
+  id: string
+  email: string
+  role: string
+  org_id: string
+  created_at?: string
+  disabled?: boolean
+}
+
+export interface SecurityEventRecord {
+  timestamp: string
+  event: string
+  user_id?: string
+  ip?: string
+  details?: string
+  org_id?: string
+}
 
 // ---- Sessions -------------------------------------------------------------
 

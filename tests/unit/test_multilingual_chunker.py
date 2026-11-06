@@ -85,3 +85,4 @@ def test_chunking_with_overlap():
     assert len(chunks) >= 2
     # Second chunk should retain overlap from previous sentence
     assert any("Sentence" in c for c in chunks)
+
