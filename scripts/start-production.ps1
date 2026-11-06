@@ -48,7 +48,7 @@ if (-not (Test-Path "$RootDir\storage")) {
 $proc.Id | Out-File -FilePath "$RootDir\storage\rag_server.pid" -Encoding ascii
 
 Write-Host ""
-Write-Host "✓ System successfully launched!" -ForegroundColor Green
+Write-Host "[OK] System successfully launched!" -ForegroundColor Green
 Write-Host "  Access URL:     http://localhost:8000" -ForegroundColor Cyan
 Write-Host "  Health Check:   http://localhost:8000/health/ready" -ForegroundColor Cyan
 Write-Host "  PID:            $($proc.Id) (Stored in storage\rag_server.pid)" -ForegroundColor Gray

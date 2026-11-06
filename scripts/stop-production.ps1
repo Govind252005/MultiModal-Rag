@@ -27,4 +27,4 @@ if ($conn) {
     }
 }
 
-Write-Host "✓ System stopped successfully." -ForegroundColor Green
+Write-Host "[OK] System stopped successfully." -ForegroundColor Green
