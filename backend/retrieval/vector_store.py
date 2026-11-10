@@ -148,17 +148,45 @@ def get_text_corpus(where=None, limit: Optional[int] = None) -> List[Dict[str, A
     return out
 
 def query_text(embedding, top_k=config.DEFAULT_TOP_K, where=None) -> List[Dict[str, Any]]:
-    res = _text_col.query(
-        query_embeddings=[embedding], n_results=top_k, where=where or None,
-        include=["documents", "metadatas", "distances"])
-    return _format_results(res)
+    global _text_col
+    try:
+        res = _text_col.query(
+            query_embeddings=[embedding], n_results=top_k, where=where or None,
+            include=["documents", "metadatas", "distances"])
+        return _format_results(res)
+    except Exception as exc:
+        print(f"[vector_store] query_text warning: {exc}. Re-acquiring collection handle...")
+        try:
+            _text_col = _client.get_or_create_collection(
+                name=config.TEXT_COLLECTION, metadata={"hnsw:space": "cosine"})
+            res = _text_col.query(
+                query_embeddings=[embedding], n_results=top_k, where=where or None,
+                include=["documents", "metadatas", "distances"])
+            return _format_results(res)
+        except Exception as exc2:
+            print(f"[vector_store] query_text recovery failed: {exc2}. Gracefully degrading to lexical search.")
+            return []
 
 
 def query_images(embedding, top_k=config.DEFAULT_TOP_K, where=None) -> List[Dict[str, Any]]:
-    res = _image_col.query(
-        query_embeddings=[embedding], n_results=top_k, where=where or None,
-        include=["documents", "metadatas", "distances"])
-    return _format_results(res)
+    global _image_col
+    try:
+        res = _image_col.query(
+            query_embeddings=[embedding], n_results=top_k, where=where or None,
+            include=["documents", "metadatas", "distances"])
+        return _format_results(res)
+    except Exception as exc:
+        print(f"[vector_store] query_images warning: {exc}. Re-acquiring collection handle...")
+        try:
+            _image_col = _client.get_or_create_collection(
+                name=config.IMAGE_COLLECTION, metadata={"hnsw:space": "cosine"})
+            res = _image_col.query(
+                query_embeddings=[embedding], n_results=top_k, where=where or None,
+                include=["documents", "metadatas", "distances"])
+            return _format_results(res)
+        except Exception as exc2:
+            print(f"[vector_store] query_images recovery failed: {exc2}.")
+            return []
 
 
 # ------------------------------------------------------------------

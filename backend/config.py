@@ -220,7 +220,8 @@ MAX_IMAGE_HEIGHT = int(os.getenv("MAX_IMAGE_HEIGHT", "12000"))
 MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "500"))
 MAX_PDF_FILE_SIZE_MB = int(os.getenv("MAX_PDF_FILE_SIZE_MB", "200"))
 MAX_AUDIO_DURATION_SECONDS = int(os.getenv("MAX_AUDIO_DURATION_SECONDS", str(4 * 3600)))  # 4h
-MAX_EXTRACTED_IMAGES_PER_DOC = int(os.getenv("MAX_EXTRACTED_IMAGES_PER_DOC", "40"))
+MAX_EXTRACTED_IMAGES_PER_DOC = int(os.getenv("MAX_EXTRACTED_IMAGES_PER_DOC", "10"))
+DEFAULT_INGESTION_MODE = os.getenv("DEFAULT_INGESTION_MODE", "balanced")
 
 # ------------------------------------------------------------------ Data retention (brief §88)
 # 0 = never auto-delete (the safe default for a local/desktop app — see

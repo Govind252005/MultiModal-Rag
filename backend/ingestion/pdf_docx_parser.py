@@ -120,7 +120,8 @@ def _image_records(pil_img, file: str, image_dir: Optional[Path],
             print(f"[doc-image] save failed: {exc}")
             media_file = None
 
-    return build_image_records(pil_img, file, media_file=media_file, page=page)
+    # Embedded document images: caption_images=False prevents slow BLIP generation loops
+    return build_image_records(pil_img, file, media_file=media_file, page=page, caption_images=False)
 
 
 # ------------------------------------------------------------------

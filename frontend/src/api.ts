@@ -103,9 +103,10 @@ export const deleteSession = (id: string) =>
   request<{ status: string }>(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
 // ---- ingestion -------------------------------------------------------------
-export function ingest(sessionId: string, files: File[]): Promise<IngestResponse> {
+export function ingest(sessionId: string, files: File[], mode: string = 'balanced'): Promise<IngestResponse> {
   const form = new FormData()
   form.append('session_id', sessionId)
+  form.append('mode', mode)
   for (const f of files) form.append('files', f)
   return request<IngestResponse>('/api/ingest', { method: 'POST', body: form })
 }
@@ -369,9 +370,10 @@ export const adminGetAuditLogs = (params?: { limit?: number; offset?: number; ac
 export const listDocuments = () =>
   request<{ documents: import('./types').ManagedDocument[]; total: number }>('/api/documents')
 
-export async function uploadDocument(file: File, collectionId?: string): Promise<{ status: string; filename: string }> {
+export async function uploadDocument(file: File, collectionId?: string, mode: string = 'balanced'): Promise<{ status: string; filename: string }> {
   const form = new FormData()
-  form.append('file', file)
+  form.append('files', file)
+  form.append('mode', mode)
   if (collectionId) form.append('collection_id', collectionId)
   return request<{ status: string; filename: string }>('/api/documents/upload', {
     method: 'POST',

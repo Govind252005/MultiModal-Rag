@@ -241,10 +241,14 @@ def text_query(
     requested_section = _requested_section(query)
 
     # 1) Dense text search (cached query embedding)
-    text_vec = embeddings.embed_text_cached(query)[0].tolist()
-    dense_text_hits = vector_store.query_text(
-        text_vec, top_k=max(top_k, config.DENSE_CANDIDATES), where=where
-    )
+    dense_text_hits = []
+    try:
+        text_vec = embeddings.embed_text_cached(query)[0].tolist()
+        dense_text_hits = vector_store.query_text(
+            text_vec, top_k=max(top_k, config.DENSE_CANDIDATES), where=where
+        )
+    except Exception as exc:
+        print(f"[search] dense text retrieval notice: {exc}")
 
     # 2) BM25 keyword search — reads the persistent lexical index (no
     # corpus load / re-tokenize per query; see AUDIT_REPORT.md P1-1).
@@ -263,20 +267,23 @@ def text_query(
     if modality in ("all", "image") and (modality == "image" or _visual_query(query)) and vector_store.has_images(
         session_id=session_id, user_id=user_id, org_id=org_id, files=files
     ):
-        img_where = vector_store.build_where(
-            session_id=session_id,
-            files=files,
-            user_id=user_id,
-            org_id=org_id,
-        )
+        try:
+            img_where = vector_store.build_where(
+                session_id=session_id,
+                files=files,
+                user_id=user_id,
+                org_id=org_id,
+            )
 
-        clip_vec = embeddings.embed_clip_text([query])[0].tolist()
+            clip_vec = embeddings.embed_clip_text([query])[0].tolist()
 
-        clip_hits = vector_store.query_images(
-            clip_vec,
-            top_k=max(top_k, config.DENSE_CANDIDATES),
-            where=img_where,
-        )
+            clip_hits = vector_store.query_images(
+                clip_vec,
+                top_k=max(top_k, config.DENSE_CANDIDATES),
+                where=img_where,
+            )
+        except Exception as exc:
+            print(f"[search] dense image retrieval notice: {exc}")
 
     # 4) Merge using RRF
     merged = _rrf_merge([dense_text_hits, bm25_hits, clip_hits], k=config.FUSION_RRF_K)

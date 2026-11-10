@@ -922,7 +922,7 @@ def _validate_uploads(files: List[UploadFile]) -> None:
 # ------------------------------------------------------------------ ingestion
 @app.post("/api/ingest")
 async def ingest(session_id: str = Form(...), files: List[UploadFile] = File(...),
-                 mode: str = Form("max_quality"), user: dict = Depends(get_user)):
+                 mode: str = Form("balanced"), user: dict = Depends(get_user)):
     org_id = user.get("org_id", "default_org")
     session_store.ensure_exists(session_id, user["id"], org_id=org_id)
     _require_owner(session_id, user)
@@ -963,7 +963,7 @@ def _refresh_after_ingest(session_id: str, user_id: str, org_id: Optional[str] =
 @app.post("/api/ingest/async")
 async def ingest_async(session_id: str = Form(...),
                        files: List[UploadFile] = File(...),
-                       mode: str = Form("max_quality"),
+                       mode: str = Form("balanced"),
                        user: dict = Depends(get_user)):
     org_id = user.get("org_id", "default_org")
     session_store.ensure_exists(session_id, user["id"], org_id=org_id)
@@ -1100,7 +1100,7 @@ async def upload_documents(
     files: List[UploadFile] = File(...),
     session_id: Optional[str] = Form(None),
     collection_id: Optional[str] = Form(None),
-    mode: str = Form("max_quality"),
+    mode: str = Form("balanced"),
     user: dict = Depends(get_user),
 ):
     org_id = user.get("org_id", "default_org")
@@ -1232,7 +1232,7 @@ def reprocess_document(
     if not target_path:
         raise HTTPException(404, f"File '{clean_name}' not found on disk.")
 
-    res = ingest_mod.ingest_file(str(target_path), session_id=target_sid, user_id=user["id"], mode="max_quality", org_id=org_id)
+    res = ingest_mod.ingest_file(str(target_path), session_id=target_sid, user_id=user["id"], mode="balanced", org_id=org_id)
     _invalidate_user_cache(user["id"])
     audit_logger.record_audit(
         action="document_reprocessed",

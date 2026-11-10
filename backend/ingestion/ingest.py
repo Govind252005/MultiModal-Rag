@@ -44,14 +44,14 @@ VALID_MODES = ("fast", "balanced", "max_quality")
 
 
 def _mode_flags(mode: str) -> Dict[str, bool]:
-    mode = (mode or "max_quality").lower()
+    mode = (mode or getattr(config, "DEFAULT_INGESTION_MODE", "balanced")).lower()
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown ingestion mode '{mode}'. Valid: {VALID_MODES}")
     return {
         "ocr_fallback": mode in ("balanced", "max_quality"),
-        "extract_tables": mode == "max_quality",
+        "extract_tables": mode in ("balanced", "max_quality"),
         "extract_embedded_images": mode == "max_quality",
-        "caption_images": mode == "max_quality",
+        "caption_images": False,
     }
 
 
