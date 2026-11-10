@@ -114,3 +114,101 @@ def test_role_12_heuristic_pronoun_contextualization():
     contextualized = query_enhance.contextualize_followup_query(followup, history=history)
     assert "instructor" in contextualized or "SVVT" in contextualized or "course" in contextualized
     assert "What is her office location?" in contextualized
+
+
+def test_precision_guard_standalone_questions_not_corrupted():
+    """Verify standalone document questions are never corrupted with previous context."""
+    history = [
+        {"role": "user", "text": "Summarize the banking application modules and requirements."},
+        {"role": "assistant", "text": "The banking application modules are..."},
+    ]
+    standalone1 = "who submitted this document?"
+    res1 = query_enhance.contextualize_followup_query(standalone1, history=history)
+    assert res1 == standalone1, f"Standalone query was corrupted to: {res1}"
+
+    standalone2 = "what is the invoice number?"
+    res2 = query_enhance.contextualize_followup_query(standalone2, history=history)
+    assert res2 == standalone2, f"Standalone query was corrupted to: {res2}"
+
+
+def test_post_rerank_same_page_coalescing_and_diversity():
+    """Verify same-page chunks coalesce text up to word threshold and enforce page diversity."""
+    hits = [
+        {
+            "id": "c1",
+            "modality": "document",
+            "file": "contract.pdf",
+            "page": 4,
+            "chunk": 0,
+            "text": "This is section 1 of the Service Level Agreement on page 4.",
+            "snippet": "This is section 1",
+            "score": 0.95,
+        },
+        {
+            "id": "c2",
+            "modality": "document",
+            "file": "contract.pdf",
+            "page": 4,
+            "chunk": 1,
+            "text": "This is section 2 detailing uptime and maintenance on page 4.",
+            "snippet": "This is section 2",
+            "score": 0.90,
+        },
+        {
+            "id": "c3",
+            "modality": "document",
+            "file": "contract.pdf",
+            "page": 4,
+            "chunk": 2,
+            "text": "This is section 3 detailing penalty clauses on page 4.",
+            "snippet": "This is section 3",
+            "score": 0.85,
+        },
+        {
+            "id": "c4",
+            "modality": "document",
+            "file": "contract.pdf",
+            "page": 19,
+            "chunk": 0,
+            "text": "Page 19 contains signature authorization and execution terms.",
+            "snippet": "Page 19 contains signature",
+            "score": 0.80,
+        },
+    ]
+
+    coalesced = search._coalesce_and_diversify(hits, top_k=3)
+    assert len(coalesced) >= 2
+    # Verify primary page 4 chunk absorbed adjacent content
+    primary_p4 = next(h for h in coalesced if h["file"] == "contract.pdf" and h["page"] == 4)
+    assert "section 1" in primary_p4["text"]
+    assert "section 2" in primary_p4["text"]
+    # Page 19 must NOT be starved out by page 4 chunks
+    assert any(h["page"] == 19 for h in coalesced)
+
+
+def test_table_header_preservation_across_chunks():
+    """Verify table chunks retain Markdown header and separator line."""
+    from backend.ingestion import pdf_docx_parser
+    class DummyTable:
+        def extract(self):
+            rows = [["ID", "Component", "Status", "Notes"]]
+            for i in range(25):
+                rows.append([f"MOD-{i}", f"Banking Subsystem {i}", "Active", "Verified under functional criteria."])
+            return rows
+
+    class DummyTabs:
+        tables = [DummyTable()]
+
+    class DummyPage:
+        def find_tables(self):
+            return DummyTabs()
+
+    records = pdf_docx_parser._table_records(DummyPage(), page_no=5, file="bank_report.pdf")
+    assert len(records) >= 1
+    for rec in records:
+        assert "| ID | Component | Status | Notes |" in rec["text"]
+        assert "| --- | --- | --- | --- |" in rec["text"]
+        assert rec["metadata"]["source_type"] == "table"
+        assert rec["metadata"]["page"] == 5
+
+

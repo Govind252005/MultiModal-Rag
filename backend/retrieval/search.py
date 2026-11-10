@@ -253,6 +253,91 @@ def _rerank(query: str, hits: List[Dict[str, Any]], top_n: int) -> List[Dict[str
         return hits[:top_n]
 
 
+def _coalesce_and_diversify(hits: List[Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
+    """Phase 4.3 enterprise refinement:
+    1. For same-page document chunks (same file, page, modality=document), coalesce
+       adjacent chunks up to ~380 words so the generator and citation drawer receive
+       cohesive page context rather than isolated fragments.
+    2. Enforce a diversity cap of at most 2 chunks per (file, page) when alternative
+       files or pages are present in the candidate pool.
+    """
+    if not hits:
+        return []
+
+    # First pass: coalesce same-file, same-page document chunks
+    coalesced: List[Dict[str, Any]] = []
+    absorbed_ids = set()
+
+    for i, h in enumerate(hits):
+        if h.get("id") in absorbed_ids:
+            continue
+        if h.get("modality") != "document" or h.get("page") is None:
+            coalesced.append(h)
+            continue
+
+        base_hit = dict(h)
+        base_words = len(base_hit.get("text", "").split())
+        base_file = base_hit.get("file")
+        base_page = base_hit.get("page")
+        base_chunk = base_hit.get("chunk", 0)
+
+        # Look ahead for adjacent or same-page chunks from the same file
+        for j in range(i + 1, len(hits)):
+            other = hits[j]
+            if other.get("id") in absorbed_ids:
+                continue
+            if (
+                other.get("modality") == "document"
+                and other.get("file") == base_file
+                and other.get("page") == base_page
+            ):
+                other_words = len(other.get("text", "").split())
+                if base_words + other_words <= 380:
+                    other_chunk = other.get("chunk", 0)
+                    try:
+                        is_before = int(other_chunk) < int(base_chunk)
+                    except (ValueError, TypeError):
+                        is_before = False
+
+                    if is_before:
+                        base_hit["text"] = other.get("text", "").rstrip() + "\n\n...\n\n" + base_hit.get("text", "").lstrip()
+                    else:
+                        base_hit["text"] = base_hit.get("text", "").rstrip() + "\n\n...\n\n" + other.get("text", "").lstrip()
+
+                    base_words += other_words
+                    snip = base_hit["text"].strip().replace("\n", " ")
+                    base_hit["snippet"] = snip[:300].rstrip() + ("…" if len(snip) > 300 else "")
+                    absorbed_ids.add(other.get("id"))
+
+        coalesced.append(base_hit)
+
+    # Second pass: enforce diversity cap of max 2 chunks per (file, page) when diverse candidates exist
+    page_counts: Dict[str, int] = {}
+    distinct_pages_or_files = set()
+    for h in coalesced:
+        distinct_pages_or_files.add(f"{h.get('file')}|p{h.get('page')}")
+
+    max_per_page = 2 if len(distinct_pages_or_files) > 1 else top_k
+
+    diverse: List[Dict[str, Any]] = []
+    overflow: List[Dict[str, Any]] = []
+
+    for h in coalesced:
+        key = f"{h.get('file')}|p{h.get('page')}"
+        cnt = page_counts.get(key, 0)
+        if cnt < max_per_page or h.get("modality") != "document":
+            page_counts[key] = cnt + 1
+            diverse.append(h)
+        else:
+            overflow.append(h)
+
+    # If diverse didn't fill top_k, backfill from overflow
+    while len(diverse) < top_k and overflow:
+        diverse.append(overflow.pop(0))
+
+    return diverse[:top_k]
+
+
 # ------------------------------------------------------------------ text query
 def text_query(
     query: str,
@@ -323,9 +408,23 @@ def text_query(
     future_bm25 = _SEARCH_EXECUTOR.submit(_fetch_bm25)
     future_clip = _SEARCH_EXECUTOR.submit(_fetch_clip)
 
-    dense_text_hits = future_dense.result()
-    bm25_hits = future_bm25.result()
-    clip_hits = future_clip.result()
+    try:
+        dense_text_hits = future_dense.result(timeout=15.0)
+    except Exception as exc:
+        logger.debug("[search] dense text retrieval join notice: %s", exc)
+        dense_text_hits = []
+
+    try:
+        bm25_hits = future_bm25.result(timeout=15.0)
+    except Exception as exc:
+        logger.debug("[search] bm25 retrieval join notice: %s", exc)
+        bm25_hits = []
+
+    try:
+        clip_hits = future_clip.result(timeout=15.0)
+    except Exception as exc:
+        logger.debug("[search] clip retrieval join notice: %s", exc)
+        clip_hits = []
 
     # 4) Merge using RRF
     merged = _rrf_merge([dense_text_hits, bm25_hits, clip_hits], k=config.FUSION_RRF_K)
@@ -347,9 +446,10 @@ def text_query(
                 c["score"] = c["score"] * 1.35
         candidates.sort(key=lambda x: x["score"], reverse=True)
 
-    # 6) Cross-encoder rerank and return top_k (default 5)
-    reranked = _rerank(query, candidates, top_n=top_k)
-    return reranked
+    # 6) Cross-encoder rerank with diverse pool and coalesce same-page adjacent chunks
+    rerank_pool_size = max(top_k * 2, 10)
+    reranked = _rerank(query, candidates, top_n=rerank_pool_size)
+    return _coalesce_and_diversify(reranked, top_k)
 
 # ------------------------------------------------------------------ image query
 def image_query(

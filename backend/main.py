@@ -141,8 +141,12 @@ _SECURITY_HEADERS = {
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
     "Content-Security-Policy": (
         "default-src 'self'; img-src 'self' data: blob:; "
-        "connect-src 'self'; style-src 'self' 'unsafe-inline'; "
-        "script-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
+        "connect-src 'self' http://localhost:* http://127.0.0.1:*; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "object-src 'self' blob: data:; "
+        "frame-src 'self' blob: data: http://localhost:* http://127.0.0.1:*; "
+        "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
     ),
 }
 
@@ -152,11 +156,20 @@ async def _security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
     is_media = request.url.path.startswith("/api/media/")
     for header, value in _SECURITY_HEADERS.items():
-        if is_media and header == "X-Frame-Options":
+        if is_media and header in ("X-Frame-Options", "Content-Security-Policy"):
             continue
         response.headers.setdefault(header, value)
-    if is_media and "X-Frame-Options" in response.headers:
-        del response.headers["X-Frame-Options"]
+
+    if is_media:
+        if "X-Frame-Options" in response.headers:
+            del response.headers["X-Frame-Options"]
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self' blob: data:; "
+            "object-src 'self' blob: data:; "
+            "frame-src 'self' blob: data: http://localhost:* http://127.0.0.1:*; "
+            "frame-ancestors 'self' http://localhost:* http://127.0.0.1:* *"
+        )
+        response.headers["Accept-Ranges"] = "bytes"
     # HSTS only makes sense once you're actually serving over HTTPS (brief
     # §123) — setting it on a plain-HTTP local/dev server would tell
     # browsers to force HTTPS on a host that doesn't have it yet, locking
@@ -232,7 +245,9 @@ def _warmup():
             embeddings.warmup()
             if config.RERANK_ENABLED:
                 search._get_reranker()
-            print("[startup] embedding and reranker models warm.")
+            from backend.generation import llm_client
+            llm_client.ensure_ollama_running()
+            print("[startup] embedding, reranker, and local inference models warm.")
         except Exception as exc:
             print(f"[startup] warmup skipped: {exc}")
     threading.Thread(target=_run, daemon=True).start()
@@ -1725,7 +1740,7 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
                 "model": resolved_model,
                 "metrics": eval_metrics,
             })
-            yield f"event: done\ndata: {json.dumps({'used_llm': False, 'metrics': eval_metrics})}\n\n"
+            yield f"event: done\ndata: {json.dumps({'used_llm': False, 'metrics': eval_metrics, 'answer': direct, 'citations': direct_citations})}\n\n"
             return
 
         # Emit initial citations upfront so the UI renders the evidence drawer immediately
@@ -1793,7 +1808,8 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
             "model": resolved_model,
             "metrics": eval_metrics,
         })
-        yield f"event: done\ndata: {json.dumps({'used_llm': used_llm, 'metrics': metrics, 'citations': answer_citations if used_llm else ctx['citations']})}\n\n"
+        done_metrics = {**(metrics or {}), **(eval_metrics or {})}
+        yield f"event: done\ndata: {json.dumps({'used_llm': used_llm, 'metrics': done_metrics, 'answer': full_text, 'citations': answer_citations if used_llm else ctx['citations']})}\n\n"
 
     return StreamingResponse(
         event_stream(), media_type="text/event-stream",
@@ -2083,7 +2099,10 @@ def media_scoped(session_id: str, filename: str, user: dict = Depends(get_user_m
     return FileResponse(
         str(path),
         media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{clean_name}"'},
+        headers={
+            "Content-Disposition": f'inline; filename="{clean_name}"',
+            "Accept-Ranges": "bytes",
+        },
     )
 
 

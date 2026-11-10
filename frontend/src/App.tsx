@@ -80,6 +80,8 @@ export default function App() {
   const [files, setFiles] = useState<LibraryFile[]>([]);
   const [filesLoading] = useState(false);
   const [citations, setCitations] = useState<Citation[]>([]);
+  const [explicitQuery, setExplicitQuery] = useState<string>('');
+  const [explicitAnswer, setExplicitAnswer] = useState<string>('');
   const [flashIndex, setFlashIndex] = useState<number | null>(null);
   const [scope, setScope] = useState<Scope>(DEFAULT_SCOPE);
   const [topK, setTopK] = useState(5);
@@ -268,11 +270,22 @@ export default function App() {
       p.map((m) => (m.id === id ? { ...m, ...(typeof patch === "function" ? patch(m) : patch) } : m)),
     );
   }
-  function handleCitationClick(index: number) {
-    const cit = citations.find((c) => c.index === index);
+  function handleCitationClick(
+    index: number,
+    msgCitations?: Citation[],
+    msgText?: string,
+    userPrompt?: string,
+  ) {
+    const list = msgCitations && msgCitations.length > 0 ? msgCitations : citations;
+    const cit = list.find((c) => c.index === index) || list[index - 1] || list[0];
     if (cit) {
       setActiveCitation(cit);
       setActiveDocument(cit.file);
+      if (msgCitations && msgCitations.length > 0) {
+        setCitations(msgCitations);
+      }
+      if (userPrompt) setExplicitQuery(userPrompt);
+      if (msgText) setExplicitAnswer(msgText);
       setViewerOpen(true);
     }
     setSourcesOpen(true);
@@ -411,11 +424,13 @@ export default function App() {
           },
           onDone: (info) => {
             const updatedCitations = (info.citations && info.citations.length > 0) ? info.citations : finalCitations;
-            updateMessage(aId, {
+            updateMessage(aId, (prev) => ({
+              text: info.answer || prev.text,
               citations: updatedCitations,
               usedLlm: info.used_llm,
+              metrics: info.metrics || prev.metrics,
               loading: false,
-            });
+            }));
             setCitations(updatedCitations);
             loadSessions();
           },
@@ -728,8 +743,8 @@ export default function App() {
                     }}
                     onClose={() => setViewerOpen(false)}
                     isSplitView={true}
-                    activeQuery={lastUserQuery}
-                    activeAnswer={lastAssistantAnswer}
+                    activeQuery={explicitQuery || lastUserQuery}
+                    activeAnswer={explicitAnswer || lastAssistantAnswer}
                   />
                 </div>
               ) : (

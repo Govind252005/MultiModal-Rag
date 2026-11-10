@@ -47,7 +47,7 @@ _lock = threading.Lock()  # guards schema creation only; SQLite handles the rest
 
 
 def _connect() -> sqlite3.Connection:
-    con = sqlite3.connect(str(_DB_PATH), timeout=30.0)
+    con = sqlite3.connect(str(_DB_PATH), timeout=30.0, check_same_thread=False)
     con.execute("PRAGMA journal_mode=WAL;")
     con.execute("PRAGMA synchronous=NORMAL;")
     return con

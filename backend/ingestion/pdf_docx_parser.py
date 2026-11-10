@@ -206,22 +206,52 @@ def parse_pdf(path: str, image_dir: Optional[Path] = None,
 
 
 def _table_records(page, page_no: int, file: str, section: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Extract tables from a PDF page via PyMuPDF find_tables()."""
+    """Extract tables from a PDF page via PyMuPDF find_tables() with header preservation across chunks."""
     records: List[Dict[str, Any]] = []
     try:
         tabs = page.find_tables()
         for tbl in (tabs.tables if hasattr(tabs, "tables") else []):
             rows = tbl.extract()
-            if not rows:
+            if not rows or len(rows) == 0:
                 continue
-            lines = []
-            for row in rows:
-                cells = [str(c).strip() if c is not None else "" for c in row]
-                lines.append(" | ".join(cells))
-            text = "\n".join(lines).strip()
-            if not text:
+
+            # Clean rows
+            cleaned_rows = [
+                [str(c).strip().replace("\n", " ") if c is not None else "" for c in r]
+                for r in rows
+            ]
+            header_cells = cleaned_rows[0]
+            col_count = len(header_cells)
+            header_line = "| " + " | ".join(header_cells) + " |"
+            sep_line = "| " + " | ".join(["---"] * max(1, col_count)) + " |"
+
+            data_rows = cleaned_rows[1:]
+            if not data_rows:
+                records.append(_record(f"{header_line}\n{sep_line}", file, page_no, source_type="table", section=section))
                 continue
-            records.append(_record(text, file, page_no, source_type="table", section=section))
+
+            # Format data rows into chunks while always prepending header row + delimiter
+            current_data_lines: List[str] = []
+            current_words = len(header_line.split()) + len(sep_line.split())
+            max_words = getattr(config, "CHUNK_SIZE_WORDS", 220)
+
+            for d_row in data_rows:
+                row_line = "| " + " | ".join(d_row) + " |"
+                row_words = len(row_line.split())
+
+                if current_data_lines and (current_words + row_words > max_words):
+                    chunk_text = header_line + "\n" + sep_line + "\n" + "\n".join(current_data_lines)
+                    records.append(_record(chunk_text, file, page_no, source_type="table", section=section))
+                    current_data_lines = [row_line]
+                    current_words = len(header_line.split()) + len(sep_line.split()) + row_words
+                else:
+                    current_data_lines.append(row_line)
+                    current_words += row_words
+
+            if current_data_lines:
+                chunk_text = header_line + "\n" + sep_line + "\n" + "\n".join(current_data_lines)
+                records.append(_record(chunk_text, file, page_no, source_type="table", section=section))
+
     except Exception as exc:
         print(f"[pdf] table extraction p.{page_no}: {exc}")
     return records

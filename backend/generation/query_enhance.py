@@ -23,7 +23,17 @@ from backend import config
 from backend.generation.providers import router
 
 _COREFERENCE_MARKERS = re.compile(
-    r"\b(it|its|he|his|him|she|her|they|their|them|that|those|this|these|the second|the first|elaborate|more about|tell me more)\b",
+    r"\b(it|its|he|his|him|she|her|they|their|them|the second|the first|the former|the latter|the same)\b",
+    re.IGNORECASE,
+)
+
+_CONTINUATION_START = re.compile(
+    r"^(?:and|also|what about|how about|what of|more about|tell me more|elaborate)\b",
+    re.IGNORECASE,
+)
+
+_STANDALONE_DOC_QUERY = re.compile(
+    r"^(?:who\s+(?:is|was|are|were|submitted|wrote|signed|created|authored|prepared)|what\s+is\s+the\s+(?:invoice|total|amount|summary|title|date|aim|objective)|what\s+does\s+the\s+document|summarize|overview)\b",
     re.IGNORECASE,
 )
 
@@ -31,12 +41,18 @@ _COREFERENCE_MARKERS = re.compile(
 def contextualize_followup_query(
     query: str, history: Optional[List[dict]] = None
 ) -> str:
-    """Zero-latency heuristic coreference contextualizer for multi-turn search."""
+    """Zero-latency heuristic coreference contextualizer for multi-turn search.
+    Only activates on genuine coreference pronouns or explicit conversational continuations.
+    Never corrupts standalone specific questions (e.g. 'Who submitted this document?')."""
     if not history or not query:
         return query
     clean_q = query.strip()
-    words = clean_q.split()
-    needs_context = bool(_COREFERENCE_MARKERS.search(clean_q)) or len(words) < 6
+
+    # If it is a standalone complete document query without explicit person pronouns, do not rewrite
+    if _STANDALONE_DOC_QUERY.search(clean_q) and not re.search(r"\b(he|his|him|she|her|they|their|them)\b", clean_q, re.IGNORECASE):
+        return query
+
+    needs_context = bool(_COREFERENCE_MARKERS.search(clean_q)) or bool(_CONTINUATION_START.search(clean_q))
     if not needs_context:
         return query
 

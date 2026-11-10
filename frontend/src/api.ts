@@ -165,7 +165,7 @@ export function transcribe(sessionId: string, blob: Blob): Promise<TranscribeRes
 export interface QueryStreamCallbacks {
   onCitations?: (citations: Citation[]) => void
   onDelta?: (text: string) => void
-  onDone?: (info: { used_llm: boolean; metrics: StreamMetrics; citations?: Citation[] }) => void
+  onDone?: (info: { used_llm: boolean; metrics: StreamMetrics; citations?: Citation[]; answer?: string }) => void
   onError?: (err: Error) => void
 }
 

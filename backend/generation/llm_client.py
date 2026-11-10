@@ -17,11 +17,86 @@ Start Ollama and pull the model once (see SETUP_GUIDE.md):
 
 from __future__ import annotations
 
-import time
+import logging
+import os
 import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+from pathlib import Path
 from typing import Dict, Generator, List, Optional
 
 from backend import config
+
+logger = logging.getLogger(__name__)
+
+_OLLAMA_START_LOCK = threading.Lock()
+_LAST_START_ATTEMPT = 0.0
+
+
+def ensure_ollama_running() -> bool:
+    """Watchdog: verifies local Ollama daemon connectivity; auto-starts 'ollama serve'
+    if the daemon is offline and the binary exists on PATH or standard local install paths."""
+    global _LAST_START_ATTEMPT
+    # 1. Quick probe
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=1.5) as resp:
+            if resp.status == 200:
+                return True
+    except Exception:
+        pass
+
+    # 2. Cooldown to avoid repeated spawn attempts
+    with _OLLAMA_START_LOCK:
+        now = time.time()
+        if now - _LAST_START_ATTEMPT < 10.0:
+            return False
+        _LAST_START_ATTEMPT = now
+
+        # Locate executable
+        ollama_bin = shutil.which("ollama")
+        if not ollama_bin and sys.platform == "win32":
+            local_app = os.environ.get("LOCALAPPDATA", "")
+            candidates = [
+                Path(local_app) / "Programs" / "Ollama" / "ollama.exe" if local_app else None,
+                Path("C:/Program Files/Ollama/ollama.exe"),
+                Path("C:/Users/HP/AppData/Local/Programs/Ollama/ollama.exe"),
+            ]
+            for cand in candidates:
+                if cand and cand.exists():
+                    ollama_bin = str(cand)
+                    break
+
+        if not ollama_bin:
+            logger.warning("[ollama_watchdog] Ollama executable not found on host.")
+            return False
+
+        logger.info("[ollama_watchdog] Starting Ollama daemon in background via: %s", ollama_bin)
+        try:
+            creationflags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
+            subprocess.Popen(
+                [ollama_bin, "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+            # Poll up to 5 seconds for Ollama to become ready
+            for _ in range(10):
+                time.sleep(0.5)
+                try:
+                    with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=1.0) as resp:
+                        if resp.status == 200:
+                            logger.info("[ollama_watchdog] Ollama daemon successfully started and healthy.")
+                            return True
+                except Exception:
+                    continue
+        except Exception as exc:
+            logger.warning("[ollama_watchdog] Failed to launch Ollama daemon: %s", exc)
+
+    return False
 
 
 class LLMError(RuntimeError):
@@ -131,6 +206,13 @@ def chat(
             resp = _client().chat(**kwargs)
         return clean_answer(resp["message"]["content"])
     except Exception as exc:
+        # Check if Ollama can be auto-started and retried once
+        if ensure_ollama_running():
+            try:
+                resp = _client().chat(**_chat_kwargs(messages, model=target_model))
+                return clean_answer(resp["message"]["content"])
+            except Exception:
+                pass
         raise LLMError(
             f"Could not reach the local LLM ('{target_model}' via "
             f"{config.OLLAMA_HOST}). Is Ollama running and the model pulled? "
@@ -179,18 +261,31 @@ def stream_chat(
             piece = (chunk.get("message") or {}).get("content", "")
             if piece:
                 if first_token_at is None:
-                    if piece:
-                        first_token_at = time.perf_counter()
-                if piece:
-                    full_text_parts.append(piece)
+                    first_token_at = time.perf_counter()
+                full_text_parts.append(piece)
             if chunk.get("done"):
                 final_chunk = chunk
     except Exception as exc:
-        raise LLMError(
-            f"Could not reach the local LLM ('{config.LLM_MODEL}' via "
-            f"{config.OLLAMA_HOST}). Is Ollama running and the model pulled? "
-            f"Original error: {exc}"
-        ) from exc
+        if ensure_ollama_running():
+            try:
+                stream = _client().chat(**kwargs)
+                for chunk in stream:
+                    piece = (chunk.get("message") or {}).get("content", "")
+                    if piece:
+                        if first_token_at is None:
+                            first_token_at = time.perf_counter()
+                        full_text_parts.append(piece)
+                    if chunk.get("done"):
+                        final_chunk = chunk
+                exc = None
+            except Exception as retry_exc:
+                exc = retry_exc
+        if exc is not None:
+            raise LLMError(
+                f"Could not reach the local LLM ('{config.LLM_MODEL}' via "
+                f"{config.OLLAMA_HOST}). Is Ollama running and the model pulled? "
+                f"Original error: {exc}"
+            ) from exc
 
     end = time.perf_counter()
     ttft_ms = (first_token_at - start) * 1000 if first_token_at else None
@@ -230,4 +325,11 @@ def is_available() -> bool:
         names = [m.get("model", m.get("name", "")) for m in models]
         return any(config.LLM_MODEL.split(":")[0] in n for n in names)
     except Exception:
+        if ensure_ollama_running():
+            try:
+                models = _client().list().get("models", [])
+                names = [m.get("model", m.get("name", "")) for m in models]
+                return any(config.LLM_MODEL.split(":")[0] in n for n in names)
+            except Exception:
+                pass
         return False

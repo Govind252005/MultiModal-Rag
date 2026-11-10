@@ -37,6 +37,14 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function normalizeChars(s: string): string {
+  return s
+    .replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-')
+    .replace(/[\u00A0\u2002\u2003\u2009\u202F]/g, ' ')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+}
+
 function locatePhraseInText(pageText: string, targetPhrase: string): { start: number; end: number } | null {
   const clean = targetPhrase.trim()
   if (!clean || clean.length < 3) return null
@@ -53,8 +61,16 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
     return { start: lowerIdx, end: lowerIdx + clean.length }
   }
 
-  // 3. Multi-word regex match across newlines/whitespace (zero drift, exact word boundary indices)
-  const words = clean.split(/\s+/).filter(Boolean)
+  // 3. Normalized punctuation match (e.g. non-breaking hyphens \u2011, en-dash \u2013, unicode spaces)
+  const normPage = normalizeChars(pageText)
+  const normClean = normalizeChars(clean)
+  const normExact = normPage.toLowerCase().indexOf(normClean.toLowerCase())
+  if (normExact >= 0) {
+    return { start: normExact, end: normExact + clean.length }
+  }
+
+  // 4. Multi-word regex match across newlines/whitespace with strict token boundaries
+  const words = normClean.split(/\s+/).filter(Boolean)
   if (words.length === 0) return null
 
   const wordLengths = [
@@ -68,7 +84,7 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
   for (const len of wordLengths) {
     if (len < 2 && words.length > 1) continue
     const subWords = words.slice(0, len)
-    const pattern = subWords.map(escapeRegex).join('\\s+')
+    const pattern = subWords.map((w) => escapeRegex(w).replace(/-/g, '[-—–‑]')).join('\\s+')
     try {
       // Require word boundaries or whitespace so we never cut words (e.g. 'in' into 'i')
       const rx = new RegExp(`(?:^|\\s|\\b)(${pattern})(?:\\b|\\s|$)`, 'iu')
@@ -88,28 +104,21 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
 function snapToWordBoundary(s: string, maxLen: number): string {
   if (s.length <= maxLen) return s.trim()
   const cut = s.slice(0, maxLen)
-  const lastSpace = cut.lastIndexOf(' ')
+  const lastSpace = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('\n'), cut.lastIndexOf('\t'))
   return (lastSpace > 15 ? cut.slice(0, lastSpace) : cut).trim()
 }
 
-function getCandidatePhrases(cit: Citation, activeQuery?: string, activeAnswer?: string): string[] {
+function getCandidatePhrases(
+  cit: Citation,
+  activeQuery?: string,
+  activeAnswer?: string,
+  pageText?: string,
+): string[] {
   const fullText = (cit.text || cit.snippet || '').trim()
-  if (!fullText) return []
-
+  const candidatePool = [pageText || '', fullText].filter(Boolean)
   const candidates: string[] = []
 
-  // 0. If user asked "who submitted" or author/supervisor query, prioritize exact submitter name
-  if (activeQuery && /\b(who|author|submit|submitted|prepared|student|supervisor)\b/i.test(activeQuery)) {
-    const authorMatch = fullText.match(/(?:submitted\s+by|author|prepared\s+by)[:\s]*\n*([^\r\n]+)/i)
-    if (authorMatch && authorMatch[1]) {
-      const name = authorMatch[1].trim()
-      if (name.length >= 3 && !candidates.includes(name)) {
-        candidates.push(name)
-      }
-    }
-  }
-
-  // 1. If activeAnswer is present, try matching the exact answer text or key answer phrase
+  // 0. If activeAnswer is present, prioritize the exact answer text or key answer phrases
   if (activeAnswer) {
     const cleanAnswer = activeAnswer
       .replace(/(?:\[|【|［)\s*\d+\s*(?:\]|】|］)/g, '')
@@ -117,36 +126,58 @@ function getCandidatePhrases(cit: Citation, activeQuery?: string, activeAnswer?:
       .trim()
 
     if (cleanAnswer && cleanAnswer.length >= 3) {
-      // Direct whole clean answer
       if (!candidates.includes(cleanAnswer)) candidates.push(cleanAnswer)
-      // If multi-sentence or has punctuation, test individual answer sentences
-      const ansLines = cleanAnswer.split(/(?:\r?\n+|(?<=[.!?])\s+)/).map(s => s.trim()).filter(s => s.length >= 6)
+      const ansLines = cleanAnswer
+        .split(/(?:\r?\n+|(?<=[.!?])\s+)/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 4)
       for (const line of ansLines) {
         if (!candidates.includes(line)) candidates.push(line)
       }
     }
   }
 
-  // 2. Multi-line entity patterns (e.g. "Submitted by\nGOVIND SHREELOCHAN", "Aim\nTo specify...")
-  const submittedMulti = fullText.match(/submitted\s+by[:\s]*\n*([^\r\n]+)/i)
-  if (submittedMulti && submittedMulti[1]) {
-    const authorName = submittedMulti[1].trim()
-    if (authorName.length >= 3 && !candidates.includes(authorName)) {
-      candidates.push(authorName)
-    }
-    const fullSubmittedBlock = submittedMulti[0].trim()
-    if (!candidates.includes(fullSubmittedBlock)) {
-      candidates.push(fullSubmittedBlock)
+  // 1. If user asked "who submitted" or author/supervisor query, prioritize exact submitter block from page
+  if (activeQuery && /\b(who|author|submit|submitted|prepared|student|supervisor)\b/i.test(activeQuery)) {
+    for (const src of candidatePool) {
+      const authorMatch = src.match(/(?:submitted\s+by|author|prepared\s+by)[:\s]*\n*([^\r\n]+)/i)
+      if (authorMatch && authorMatch[1]) {
+        const name = authorMatch[1].trim()
+        if (name.length >= 3 && !candidates.includes(name)) {
+          candidates.push(name)
+        }
+        const fullBlock = authorMatch[0].trim()
+        if (!candidates.includes(fullBlock)) {
+          candidates.push(fullBlock)
+        }
+      }
     }
   }
 
-  const aimMulti = fullText.match(/\baim[:\s]*\n*([^\r\n]+)/i)
-  if (aimMulti && aimMulti[1]) {
-    const aimText = aimMulti[1].trim()
-    if (aimText.length >= 6 && !candidates.includes(aimText)) {
-      candidates.push(aimText)
+  // 2. Multi-line entity patterns (e.g. "Submitted by\nGOVIND SHREELOCHAN", "Aim\nTo specify...")
+  for (const src of candidatePool) {
+    const submittedMulti = src.match(/submitted\s+by[:\s]*\n*([^\r\n]+)/i)
+    if (submittedMulti && submittedMulti[1]) {
+      const authorName = submittedMulti[1].trim()
+      if (authorName.length >= 3 && !candidates.includes(authorName)) {
+        candidates.push(authorName)
+      }
+      const fullSubmittedBlock = submittedMulti[0].trim()
+      if (!candidates.includes(fullSubmittedBlock)) {
+        candidates.push(fullSubmittedBlock)
+      }
+    }
+
+    const aimMulti = src.match(/\baim[:\s]*\n*([^\r\n]+)/i)
+    if (aimMulti && aimMulti[1]) {
+      const aimText = aimMulti[1].trim()
+      if (aimText.length >= 6 && !candidates.includes(aimText)) {
+        candidates.push(aimText)
+      }
     }
   }
+
+  if (!fullText) return candidates
 
   // 3. Segment analysis from citation text
   const rawSegments = fullText
@@ -187,7 +218,7 @@ function getCandidatePhrases(cit: Citation, activeQuery?: string, activeAnswer?:
   }
 
   if (!candidates.includes(fullText)) {
-    candidates.push(snapToWordBoundary(fullText, 90))
+    candidates.push(snapToWordBoundary(fullText, 120))
   }
 
   return candidates
@@ -363,7 +394,7 @@ export default function DocumentViewer({
     const matches: MatchRange[] = []
 
     for (const cit of citationsOnThisPage) {
-      const phrases = getCandidatePhrases(cit, activeQuery, activeAnswer)
+      const phrases = getCandidatePhrases(cit, activeQuery, activeAnswer, currentPageText)
       let matchFound = false
 
       for (const phrase of phrases) {
@@ -464,7 +495,7 @@ export default function DocumentViewer({
   // Check if active citation has an exact verified match on current page
   const hasVerifiedMatchOnPage = useMemo(() => {
     if (!activeCitation || !currentPageText) return false
-    const phrases = getCandidatePhrases(activeCitation, activeQuery, activeAnswer)
+    const phrases = getCandidatePhrases(activeCitation, activeQuery, activeAnswer, currentPageText)
     for (const p of phrases) {
       if (locatePhraseInText(currentPageText, p)) return true
     }
@@ -760,16 +791,32 @@ export default function DocumentViewer({
                     </a>
                   </div>
                   <object
+                    key={`pdf-obj-${docContent?.filename || activeDocument}-p${currentPage}`}
                     data={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
                     type="application/pdf"
                     className="w-full flex-1 border-0"
                     title={activeDocument}
                   >
                     <iframe
+                      key={`pdf-iframe-${docContent?.filename || activeDocument}-p${currentPage}`}
                       src={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
                       title={activeDocument}
                       className="w-full h-full border-0"
-                    />
+                    >
+                      <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-surface-50 dark:bg-surface-850">
+                        <p className="text-sm text-surface-600 dark:text-surface-300 mb-3">
+                          PDF inline preview blocked by browser policy.
+                        </p>
+                        <a
+                          href={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 rounded-xl bg-brand-600 text-white text-xs font-semibold shadow hover:bg-brand-700 transition"
+                        >
+                          Open PDF in Dedicated Window &rarr;
+                        </a>
+                      </div>
+                    </iframe>
                   </object>
                 </div>
               ) : (docContent?.modality === 'audio' || activeCitation?.modality === 'audio') ? (

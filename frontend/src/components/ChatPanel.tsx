@@ -14,6 +14,8 @@ import {
   FileText,
   Image as ImageIcon,
   AudioLines,
+  ShieldCheck,
+  Zap,
 } from 'lucide-react'
 import type { ChatMessage, Citation } from '../types'
 import AnswerText from './AnswerText'
@@ -25,7 +27,7 @@ type LightboxTarget = { mediaUrl?: string; src?: string; alt?: string }
 
 export interface ChatPanelProps {
   messages: ChatMessage[]
-  onCitationClick: (index: number) => void
+  onCitationClick: (index: number, citations?: Citation[], answerText?: string, userQuery?: string) => void
   onPromptClick?: (prompt: string) => void
   onRegenerate?: () => void
 }
@@ -50,19 +52,28 @@ export default function ChatPanel({
   return (
     <div className="scroll-thin flex-1 space-y-6 overflow-y-auto px-4 py-6 sm:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
-        {messages.map((m, idx) =>
-          m.role === 'user' ? (
-            <UserBubble key={m.id || idx} message={m} onOpenImage={setLightbox} />
-          ) : (
+        {messages.map((m, idx) => {
+          if (m.role === 'user') {
+            return <UserBubble key={m.id || idx} message={m} onOpenImage={setLightbox} />
+          }
+          let precedingUserQuery = ''
+          for (let i = idx - 1; i >= 0; i--) {
+            if (messages[i].role === 'user') {
+              precedingUserQuery = messages[i].text
+              break
+            }
+          }
+          return (
             <AssistantBubble
               key={m.id || idx}
               message={m}
+              precedingUserQuery={precedingUserQuery}
               onCitationClick={onCitationClick}
               onOpenImage={setLightbox}
               onRegenerate={idx === messages.length - 1 ? onRegenerate : undefined}
             />
           )
-        )}
+        })}
         <div ref={bottomRef} />
       </div>
       {lightbox && <Lightbox {...lightbox} onClose={() => setLightbox(null)} />}
@@ -99,12 +110,14 @@ function UserBubble({
 
 function AssistantBubble({
   message,
+  precedingUserQuery,
   onCitationClick,
   onOpenImage,
   onRegenerate,
 }: {
   message: ChatMessage
-  onCitationClick: (index: number) => void
+  precedingUserQuery?: string
+  onCitationClick: (index: number, citations?: Citation[], answerText?: string, userQuery?: string) => void
   onOpenImage: (t: LightboxTarget) => void
   onRegenerate?: () => void
 }) {
@@ -143,7 +156,7 @@ function AssistantBubble({
             {/* Answer Body (Rich Markdown + Code + Tables + Clickable Citations) */}
             <AnswerText
               text={message.text}
-              onCitationClick={onCitationClick}
+              onCitationClick={(idx) => onCitationClick(idx, message.citations, message.text, precedingUserQuery)}
               validIndexes={validIndexes}
             />
 
@@ -158,6 +171,30 @@ function AssistantBubble({
             {/* Inline Extracted Citation Images */}
             {message.citations && message.citations.length > 0 && (
               <InlineCitationImages citations={message.citations} onOpenImage={onOpenImage} />
+            )}
+
+            {/* Telemetry pill */}
+            {message.metrics && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-2 text-[11px] text-surface-500 font-mono">
+                <span className="inline-flex items-center gap-1 rounded-md bg-surface-100 dark:bg-surface-800 px-2 py-0.5 border border-surface-200 dark:border-surface-700 font-medium">
+                  <Zap className="h-3 w-3 text-amber-500" />
+                  <span>{message.metrics.ttft_ms != null ? `${Math.round(message.metrics.ttft_ms)}ms TTFT` : 'Fast TTFT'}</span>
+                </span>
+                {message.metrics.tokens_per_second != null && Number(message.metrics.tokens_per_second) > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-surface-100 dark:bg-surface-800 px-2 py-0.5 border border-surface-200 dark:border-surface-700">
+                    <span>{Number(message.metrics.tokens_per_second).toFixed(1)} tok/s</span>
+                  </span>
+                )}
+                {message.metrics.retrieval_ms != null && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-surface-100 dark:bg-surface-800 px-2 py-0.5 border border-surface-200 dark:border-surface-700">
+                    <span>retrieval {Math.round(message.metrics.retrieval_ms)}ms</span>
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 border border-emerald-200 dark:border-emerald-800/60 font-medium">
+                  <ShieldCheck className="h-3 w-3" />
+                  {message.provider === 'ollama' ? 'Offline Air-Gapped' : `${(message.provider || 'AI').toUpperCase()} Grounded`}
+                </span>
+              </div>
             )}
 
             {/* Assistant Message Action Bar */}

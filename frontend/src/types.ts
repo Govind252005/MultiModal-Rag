@@ -278,6 +278,9 @@ export interface ChatMessage {
   loading?: boolean
   /** Object URL of a user-uploaded image (image query) shown in the bubble. */
   imageUrl?: string
+  metrics?: StreamMetrics
+  provider?: string
+  model?: string
 }
 
 /** Query scope chosen in the composer: modality + specific files ([] = all). */
@@ -338,7 +341,10 @@ export interface StreamMetrics {
   ttft_ms?: number | null
   generation_time_ms?: number | null
   total_llm_time_ms?: number | null
+  retrieval_ms?: number | null
+  generation_ms?: number | null
   prompt_tokens?: number | null
   completion_tokens?: number | null
   tokens_per_second?: number | null
+  faithfulness_score?: number | null
 }

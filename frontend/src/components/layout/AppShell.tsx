@@ -13,6 +13,7 @@ import {
   Menu,
   Server,
   Cloud,
+  Sparkles,
 } from 'lucide-react'
 import type { AppView, AuthUser, ActiveProviderResponse, HealthResponse } from '../../types'
 import { Badge } from '../ui/Badge'
@@ -53,6 +54,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     { view: 'collections' as AppView, label: 'Collections', icon: Layers, section: 'Workspace' },
     { view: 'search' as AppView, label: 'Search', icon: Search, section: 'Workspace' },
     { view: 'settings' as AppView, label: 'Models & Settings', icon: Cpu, section: 'Preferences' },
+    { view: 'landing' as AppView, label: 'Platform Tour', icon: Sparkles, section: 'Preferences' },
   ]
 
   if (isAdmin) {
