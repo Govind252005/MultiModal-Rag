@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { PanelRight, Loader2 } from "lucide-react";
 
 import * as api from "./api";
@@ -62,6 +62,7 @@ export default function App() {
   const [view, setView] = useState<AppView>(() => {
     try {
       if (window.location.pathname === '/landing') return 'landing';
+      if (!api.hasToken()) return 'landing';
     } catch {
       /* ignore */
     }
@@ -117,6 +118,13 @@ export default function App() {
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const [splitRatio, setSplitRatio] = useState<number>(50);
   const [error, setError] = useState<string | null>(null);
+
+  const lastUserQuery = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].text;
+    }
+    return '';
+  }, [messages]);
 
   // Loaders -----------------------------------------------------------------
   const loadHealth = useCallback(async () => {
@@ -549,10 +557,11 @@ export default function App() {
     );
   }
 
+  if (view === 'landing') {
+    return <LandingPage onNavigate={setView} user={user} />;
+  }
+
   if (!user) {
-    if (view === 'landing') {
-      return <LandingPage onNavigate={setView} />;
-    }
     return (
       <AuthPage
         initialMode={view === 'register' ? 'register' : 'login'}
@@ -676,7 +685,7 @@ export default function App() {
                     e.preventDefault();
                     const onMouseMove = (moveEvent: MouseEvent) => {
                       const containerWidth = window.innerWidth;
-                      const newRatio = Math.min(75, Math.max(30, (moveEvent.clientX / containerWidth) * 100));
+                      const newRatio = Math.min(65, Math.max(35, (moveEvent.clientX / containerWidth) * 100));
                       setSplitRatio(newRatio);
                     };
                     const onMouseUp = () => {
@@ -707,6 +716,7 @@ export default function App() {
                     }}
                     onClose={() => setViewerOpen(false)}
                     isSplitView={true}
+                    activeQuery={lastUserQuery}
                   />
                 </div>
               ) : (

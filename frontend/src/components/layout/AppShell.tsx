@@ -81,13 +81,17 @@ export const AppShell: React.FC<AppShellProps> = ({
       >
         {/* Brand Header */}
         <div className="flex h-16 items-center justify-between border-b border-surface-200 px-4 dark:border-surface-800">
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white font-bold text-base shadow-sm">
+          <div
+            onClick={() => onNavigate('landing')}
+            className="flex items-center gap-2.5 overflow-hidden cursor-pointer group"
+            title="View Product Overview / Landing Page"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white font-bold text-base shadow-sm group-hover:scale-105 transition-transform">
               M
             </div>
             {!collapsed && (
               <div className="min-w-0">
-                <span className="block truncate font-semibold text-sm tracking-tight text-surface-900 dark:text-surface-100">
+                <span className="block truncate font-semibold text-sm tracking-tight text-surface-900 dark:text-surface-100 group-hover:text-brand-600 transition-colors">
                   Multimodal RAG
                 </span>
                 <span className="block truncate text-[11px] text-surface-400 font-mono">

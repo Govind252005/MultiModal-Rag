@@ -65,3 +65,4 @@
   2. In **Models & Settings**, disable or revoke the affected Cloud API key.
   3. Switch system default model back to `Local Qwen (Ollama)`.
   4. Review user consent records and the cloud provider's data retention policy.
+

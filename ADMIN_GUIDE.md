@@ -54,3 +54,4 @@ Every sensitive enterprise operation is recorded with a structured JSONL audit e
 - API key ingestion, verification, and rotation.
 
 Logs can be viewed in real-time under the **Audit Logs** tab in Enterprise Administration.
+

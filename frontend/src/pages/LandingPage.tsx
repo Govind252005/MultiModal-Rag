@@ -8,13 +8,14 @@ import {
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
-import type { AppView } from '../types'
+import type { AppView, AuthUser } from '../types'
 
 export interface LandingPageProps {
   onNavigate: (view: AppView) => void
+  user?: AuthUser | null
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, user }) => {
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-surface-950 text-surface-900 dark:text-surface-100 flex flex-col">
       {/* Top Navigation */}
@@ -32,12 +33,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => onNavigate('login')}>
-              Sign In
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => onNavigate('register')}>
-              Get Started
-            </Button>
+            {user ? (
+              <Button variant="primary" size="sm" onClick={() => onNavigate('dashboard')}>
+                Back to Workspace &rarr;
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => onNavigate('login')}>
+                  Sign In
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => onNavigate('register')}>
+                  Get Started
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -60,21 +69,34 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
         </p>
 
         <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3.5">
-          <Button
-            size="lg"
-            variant="primary"
-            icon={<ArrowRight className="h-4 w-4" />}
-            onClick={() => onNavigate('register')}
-          >
-            Start Enterprise Workspace
-          </Button>
-          <Button
-            size="lg"
-            variant="outline"
-            onClick={() => onNavigate('login')}
-          >
-            Sign In with Existing Account
-          </Button>
+          {user ? (
+            <Button
+              size="lg"
+              variant="primary"
+              icon={<ArrowRight className="h-4 w-4" />}
+              onClick={() => onNavigate('dashboard')}
+            >
+              Enter Dashboard & Workspace
+            </Button>
+          ) : (
+            <>
+              <Button
+                size="lg"
+                variant="primary"
+                icon={<ArrowRight className="h-4 w-4" />}
+                onClick={() => onNavigate('register')}
+              >
+                Start Enterprise Workspace
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => onNavigate('login')}
+              >
+                Sign In with Existing Account
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Feature Grid */}

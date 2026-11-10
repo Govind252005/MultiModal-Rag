@@ -105,3 +105,4 @@ def test_disaster_recovery_drill(tmp_path: Path):
     recovered_users = json.loads((recovered_store / "users.json").read_text(encoding="utf-8"))
     assert "usr_1" in recovered_users
     assert recovered_users["usr_1"]["email"] == "dr_officer@corp.local"
+

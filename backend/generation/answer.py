@@ -73,8 +73,14 @@ def _add_confidence(citations: List[Dict[str, Any]]) -> None:
         c["confidence"] = value  # deprecated alias — see _citation()'s comment
 
 
-_CITATION_RE = re.compile(r"\[\d+\]")
-_CITATION_INDEX_RE = re.compile(r"\[(\d+)\]")
+_CITATION_RE = re.compile(
+    r"(?:\[|【|［)(?:citation:|cite:|source:)?\s*(\d+)\s*(?:\]|】|］)",
+    re.IGNORECASE,
+)
+_CITATION_INDEX_RE = re.compile(
+    r"(?:\[|【|［)(?:citation:|cite:|source:)?\s*(\d+)\s*(?:\]|】|］)",
+    re.IGNORECASE,
+)
 _STYLE_ONLY_RE = re.compile(
     r"^\s*(table|json|markdown|bullet|bullets|list|format|tabular)\b",
     re.IGNORECASE,
@@ -199,6 +205,13 @@ def _direct_field_answer(query: str, hits: List[Dict[str, Any]],
             if matches:
                 values = [f"{name.strip()} — {number}" for name, number in matches]
                 return "\n".join(values) + f" [{index}]"
+    if re.search(r"\b(?:who\s+submitted|submitted\s+by|submitted)\b", q):
+        field_patterns.append(
+            re.compile(
+                r"\b(?:submitted\s+by)\s*[:#-]?\s*(?:\r?\n\s*)?([A-Z0-9][A-Z0-9\s()|&.-]{2,})",
+                re.IGNORECASE,
+            )
+        )
 
     if not field_patterns:
         return None

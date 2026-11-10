@@ -223,8 +223,8 @@ function renderInline(
   onCitationClick: (index: number) => void,
   validIndexes?: Set<number>
 ): React.ReactNode {
-  // First split by citations [1], [2]
-  const citationParts = text.split(/\[(\d+)\]/g)
+  // Split by citations: [1], 【1】, ［1］, [citation: 1], [cite: 1], etc.
+  const citationParts = text.split(/(?:\[|【|［)(?:citation:|cite:|source:)?\s*(\d+)\s*(?:\]|】|］)/gi)
 
   return citationParts.map((part, idx) => {
     const isCitation = idx % 2 === 1
@@ -238,7 +238,7 @@ function renderInline(
           key={`cit-${idx}`}
           type="button"
           onClick={() => onCitationClick(num)}
-          className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 mx-0.5 rounded text-[10px] font-bold bg-brand-100 text-brand-700 hover:bg-brand-600 hover:text-white dark:bg-brand-950 dark:text-brand-300 dark:hover:bg-brand-600 transition-colors select-none align-baseline"
+          className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 mx-0.5 rounded text-[10px] font-bold bg-brand-100 text-brand-700 hover:bg-brand-600 hover:text-white dark:bg-brand-950 dark:text-brand-300 dark:hover:bg-brand-600 transition-colors select-none align-baseline cursor-pointer"
           title={`View supporting evidence source [${num}]`}
         >
           {num}

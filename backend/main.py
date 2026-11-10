@@ -22,7 +22,7 @@ from typing import List, Optional
 
 from backend import cache as cache_store
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -136,13 +136,13 @@ async def _api_versioning_middleware(request: Request, call_next):
 # origin(s) — see docs/security.md.
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
+    "X-Frame-Options": "SAMEORIGIN",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
     "Content-Security-Policy": (
         "default-src 'self'; img-src 'self' data: blob:; "
         "connect-src 'self'; style-src 'self' 'unsafe-inline'; "
-        "script-src 'self'; frame-ancestors 'none'"
+        "script-src 'self'; frame-ancestors 'self'"
     ),
 }
 
@@ -236,6 +236,28 @@ def get_user(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "Not authenticated.")
     uid = auth.verify_token(authorization.split(" ", 1)[1])
+    if not uid:
+        raise HTTPException(401, "Invalid or expired session. Please log in again.")
+    user = auth.get_user_by_id(uid)
+    if not user:
+        raise HTTPException(401, "Account not found.")
+    if user.get("status") == "disabled":
+        raise HTTPException(403, "Account is disabled. Please contact your enterprise administrator.")
+    return user
+
+
+def get_user_media(
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = Query(None),
+) -> dict:
+    raw_token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        raw_token = authorization.split(" ", 1)[1]
+    elif token:
+        raw_token = token
+    if not raw_token:
+        raise HTTPException(401, "Not authenticated.")
+    uid = auth.verify_token(raw_token)
     if not uid:
         raise HTTPException(401, "Invalid or expired session. Please log in again.")
     user = auth.get_user_by_id(uid)
@@ -2040,7 +2062,7 @@ def source(doc_id: str, user: dict = Depends(get_user)):
 
 
 @app.get("/api/media/{session_id}/{filename}")
-def media_scoped(session_id: str, filename: str, user: dict = Depends(get_user)):
+def media_scoped(session_id: str, filename: str, user: dict = Depends(get_user_media)):
     # Enforce authentication and ownership of the session.
     _require_owner(session_id, user)
 
@@ -2049,7 +2071,12 @@ def media_scoped(session_id: str, filename: str, user: dict = Depends(get_user))
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="File not found.")
 
-    return FileResponse(str(path))
+    media_type = "application/pdf" if clean_name.lower().endswith(".pdf") else None
+    return FileResponse(
+        str(path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{clean_name}"'},
+    )
 
 
 @app.get("/api/documents/{session_id}/{filename}/content")

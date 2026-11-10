@@ -66,6 +66,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-surface-950 flex flex-col justify-center items-center px-4 py-12">
       <div className="w-full max-w-md">
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={() => onNavigate('landing')}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-surface-500 hover:text-surface-800 dark:text-surface-400 dark:hover:text-surface-200 transition-colors"
+          >
+            &larr; Back to Home / Product Overview
+          </button>
+        </div>
+
         {/* Header Branding */}
         <div className="text-center mb-8">
           <div

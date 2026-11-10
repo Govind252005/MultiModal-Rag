@@ -26,6 +26,9 @@ export function clearToken() {
   TOKEN = ''
   try { localStorage.removeItem('token') } catch { /* ignore */ }
 }
+export function getToken() {
+  return TOKEN || (typeof localStorage !== 'undefined' ? localStorage.getItem('token') || '' : '')
+}
 export function hasToken() { return !!TOKEN }
 
 // ---- core fetch ------------------------------------------------------------

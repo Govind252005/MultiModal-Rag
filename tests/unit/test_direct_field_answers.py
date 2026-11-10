@@ -105,3 +105,16 @@ def test_only_answer_cited_sources_are_returned():
     assert result["answer"] == "Rs 10000 /- [1]"
     assert len(result["citations"]) == 1
     assert result["citations"][0]["file"] == "invoice.pdf"
+
+
+def test_submitted_by_question_extracts_author_name():
+    text = (
+        "SOFTWARE VERIFICATION, VALIDATION AND TESTING\n"
+        "SVVT PRACTICAL FILE\n"
+        "Submitted by\n"
+        "GOVIND SHREELOCHAN (00720802723)\n"
+        "CSE-A | Batch 2023-2027"
+    )
+    result = _answer("who submitted this document?", text)
+    assert "GOVIND SHREELOCHAN (00720802723)" in result
+    assert result.endswith("[1]")

@@ -64,3 +64,4 @@ print(f"Archive Valid: {info['is_valid']}, Entries: {info['total_files']}")
    ```powershell
    curl http://localhost:8000/health/ready
    ```
+

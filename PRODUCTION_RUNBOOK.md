@@ -78,3 +78,4 @@ To allow team members, colleagues, or mobile devices on the same local network /
 - **Accurate Cryptographic Cipher**: Fernet operates strictly with **AES-128-CBC with PKCS7 padding and HMAC-SHA256 authenticated encryption** (128-bit AES encryption key + 128-bit HMAC authentication key derived from a 256-bit secret).
 - **Session Tokens**: Cryptographically signed SHA-256 session tokens with 24-hour expiration and immediate database-backed revocation.
 - **Cloud Egress Protection**: Default configuration operates 100% locally. Ingesting cloud keys requires manual entry in the Admin/Model Settings UI, and an explicit Privacy Disclosure banner appears before any query passes to external cloud providers.
+

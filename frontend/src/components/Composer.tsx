@@ -348,6 +348,17 @@ export default function Composer({
               title="Chunks retrieved per query"
             />
           </label>
+
+          {activeProvider?.mode === 'cloud' && (
+            <span
+              className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 py-1 px-2.5 text-xs font-medium text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300 shadow-2xs"
+              title={`Cloud Generation Active: Using ${activeProvider.provider} (${activeProvider.model}). Prompts & top-${topK} retrieved passages transmitted via encrypted TLS. Document storage and vector search remain 100% on-premises.`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-sky-500 animate-pulse shrink-0" />
+              <span className="font-semibold uppercase">{activeProvider.provider}</span>
+              <span className="text-[11px] font-mono text-sky-600 dark:text-sky-400">({activeProvider.model})</span>
+            </span>
+          )}
         </div>
 
         {/* Staging Shelf: Displays staged attachments with thumbnails & removal controls */}
@@ -456,19 +467,6 @@ export default function Composer({
                   Real-time dictation text streams through your browser vendor's recognition engine (Google/Apple cloud). Once you click "Done Recording", the saved audio file is processed 100% locally and privately by on-premises Whisper with zero cloud egress.
                 </p>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Cloud Generation Privacy Disclosure Banner */}
-        {activeProvider?.mode === 'cloud' && (
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200 shadow-2xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="flex h-2 w-2 rounded-full bg-sky-500 animate-pulse shrink-0" />
-              <p className="truncate text-[11px]">
-                <span className="font-semibold">Cloud Generation Active:</span> Using{' '}
-                <span className="font-mono font-bold uppercase">{activeProvider.provider}</span> ({activeProvider.model}). Prompts & top-{topK} retrieved passages will be transmitted via encrypted TLS for answer generation. Document storage and vector search remain 100% on-premises.
-              </p>
             </div>
           </div>
         )}

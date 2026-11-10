@@ -28,3 +28,12 @@ def test_reasoning_cannot_reach_the_user_if_finalization_still_fails():
     )
 
     assert result == answer.prompt_templates.MISSING_CONTEXT_MESSAGE
+
+
+def test_fullwidth_citation_markers_are_parsed_and_normalized():
+    citations = [{"index": 1, "file": "doc.pdf"}]
+    answer_text = "Demonstrate selected cases in C++【1】"
+    compacted_text, compacted_citations = answer._restrict_citations_to_answer(answer_text, citations)
+    assert compacted_text == "Demonstrate selected cases in C++[1]"
+    assert len(compacted_citations) == 1
+    assert compacted_citations[0]["index"] == 1

@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import type { Citation, DocumentContentResponse } from '../types'
-import { getDocumentContent } from '../api'
+import { getDocumentContent, getToken } from '../api'
 
 export interface DocumentViewerProps {
   sessionId: string
@@ -28,6 +28,106 @@ export interface DocumentViewerProps {
   onClose: () => void
   isSplitView?: boolean
   onToggleSplit?: () => void
+  activeQuery?: string
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function locatePhraseInText(pageText: string, targetPhrase: string): { start: number; end: number } | null {
+  const clean = targetPhrase.trim()
+  if (!clean || clean.length < 3) return null
+
+  // 1. Direct substring match
+  const exactIdx = pageText.indexOf(clean)
+  if (exactIdx >= 0) {
+    return { start: exactIdx, end: exactIdx + clean.length }
+  }
+
+  // 2. Case-insensitive exact match
+  const lowerIdx = pageText.toLowerCase().indexOf(clean.toLowerCase())
+  if (lowerIdx >= 0) {
+    return { start: lowerIdx, end: lowerIdx + clean.length }
+  }
+
+  // 3. Multi-word regex match across newlines/whitespace (zero drift, exact page indices)
+  const words = clean.split(/\s+/).filter(Boolean)
+  if (words.length === 0) return null
+
+  const wordLengths = [
+    words.length,
+    Math.min(words.length, 12),
+    Math.min(words.length, 8),
+    Math.min(words.length, 5),
+    Math.min(words.length, 3),
+  ]
+
+  for (const len of wordLengths) {
+    if (len < 2 && words.length > 1) continue
+    const subWords = words.slice(0, len)
+    const pattern = subWords.map(escapeRegex).join('\\s+')
+    try {
+      const rx = new RegExp(pattern, 'iu')
+      const match = rx.exec(pageText)
+      if (match) {
+        return { start: match.index, end: match.index + match[0].length }
+      }
+    } catch {
+      // ignore regex syntax issues
+    }
+  }
+
+  return null
+}
+
+function getCandidatePhrases(cit: Citation, activeQuery?: string): string[] {
+  const fullText = (cit.text || cit.snippet || '').trim()
+  if (!fullText) return []
+
+  const candidates: string[] = []
+  const rawSegments = fullText
+    .split(/(?:\r?\n+|(?<=[.!?])\s+)/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 6)
+
+  // Prioritize segments matching user query or key entity phrases
+  if (activeQuery) {
+    const qWords = activeQuery.toLowerCase().split(/\W+/).filter((w) => w.length > 2)
+    const scored = rawSegments.map((seg) => {
+      const segLower = seg.toLowerCase()
+      let score = 0
+      for (const w of qWords) {
+        if (segLower.includes(w)) score += 3
+      }
+      if (/submitted\s+by|author|supervisor|prepared\s+by|total|section|liability|rule/i.test(seg)) {
+        score += 4
+      }
+      return { seg, score }
+    })
+    scored.sort((a, b) => b.score - a.score)
+    for (const item of scored) {
+      if (item.score > 0) candidates.push(item.seg)
+    }
+  }
+
+  // Also prioritize lines with salient entity prefixes
+  for (const seg of rawSegments) {
+    if (/submitted\s+by|author|supervisor|section|rule|article|fact/i.test(seg)) {
+      if (!candidates.includes(seg)) candidates.push(seg)
+    }
+  }
+
+  // Append remaining segments in natural order
+  for (const seg of rawSegments) {
+    if (!candidates.includes(seg)) candidates.push(seg)
+  }
+
+  if (!candidates.includes(fullText)) {
+    candidates.push(fullText.slice(0, 100))
+  }
+
+  return candidates
 }
 
 export default function DocumentViewer({
@@ -37,6 +137,8 @@ export default function DocumentViewer({
   allCitations,
   onSelectCitation,
   onClose,
+  isSplitView = false,
+  activeQuery,
 }: DocumentViewerProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,6 +151,8 @@ export default function DocumentViewer({
   const [fullWidth, setFullWidth] = useState(false)
   const [mobileTab, setMobileTab] = useState<'document' | 'annotations'>('document')
   const [showAnnotations, setShowAnnotations] = useState(true)
+
+  const isSplitPane = isSplitView && !fullWidth
 
   const textContainerRef = useRef<HTMLDivElement>(null)
   const activeHighlightRef = useRef<HTMLElement | null>(null)
@@ -182,44 +286,48 @@ export default function DocumentViewer({
     }
 
     const matches: MatchRange[] = []
-    const normPage = currentPageText.replace(/\s+/g, ' ')
 
     for (const cit of citationsOnThisPage) {
-      const rawTarget = (cit.text || cit.snippet || '').trim()
-      if (!rawTarget) continue
+      const phrases = getCandidatePhrases(cit, activeQuery)
+      let matchFound = false
 
-      // Clean target: take up to 150 chars of meaningful text for search
-      const targetSub = rawTarget.replace(/\s+/g, ' ')
-      const searchProbe = targetSub.length > 80 ? targetSub.slice(0, 80) : targetSub
-
-      let startIdx = currentPageText.indexOf(searchProbe)
-      let endIdx = -1
-
-      if (startIdx >= 0) {
-        endIdx = startIdx + searchProbe.length
-      } else {
-        // Fallback: try searching in normalized string
-        const normIdx = normPage.indexOf(searchProbe)
-        if (normIdx >= 0) {
-          // Approximate index mapped back to original text
-          startIdx = Math.min(normIdx, currentPageText.length - 1)
-          endIdx = Math.min(startIdx + searchProbe.length, currentPageText.length)
+      for (const phrase of phrases) {
+        const loc = locatePhraseInText(currentPageText, phrase)
+        if (loc && loc.end > loc.start) {
+          matches.push({
+            start: loc.start,
+            end: loc.end,
+            citation: cit,
+            isActive: activeCitation?.index === cit.index,
+          })
+          matchFound = true
+          break
         }
       }
 
-      if (startIdx >= 0 && endIdx > startIdx) {
-        matches.push({
-          start: startIdx,
-          end: endIdx,
-          citation: cit,
-          isActive: activeCitation?.index === cit.index,
-        })
+      // Fallback: try first 60 characters of citation text or snippet
+      if (!matchFound) {
+        const rawTarget = (cit.text || cit.snippet || '').trim().replace(/\s+/g, ' ')
+        const probe = rawTarget.slice(0, 60)
+        const loc = locatePhraseInText(currentPageText, probe)
+        if (loc && loc.end > loc.start) {
+          matches.push({
+            start: loc.start,
+            end: loc.end,
+            citation: cit,
+            isActive: activeCitation?.index === cit.index,
+          })
+        }
       }
     }
 
-    // If no exact match located, return plain text and let the verification card render below
+    // If no match located, return plain text
     if (matches.length === 0) {
-      return <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200">{currentPageText}</div>
+      return (
+        <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200 break-words font-sans">
+          {currentPageText}
+        </div>
+      )
     }
 
     // Sort matches by start position
@@ -271,16 +379,23 @@ export default function DocumentViewer({
       )
     }
 
-    return <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200">{elements}</div>
-  }, [currentPageText, docCitations, activeCitation, currentPage, docContent])
+    return (
+      <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200 break-words font-sans">
+        {elements}
+      </div>
+    )
+  }, [currentPageText, docCitations, activeCitation, currentPage, docContent, activeQuery])
 
   // Check if active citation has an exact verified match on current page
   const hasVerifiedMatchOnPage = useMemo(() => {
     if (!activeCitation || !currentPageText) return false
-    const probe = (activeCitation.text || activeCitation.snippet || '').trim().replace(/\s+/g, ' ')
-    const searchProbe = probe.length > 80 ? probe.slice(0, 80) : probe
-    return currentPageText.replace(/\s+/g, ' ').includes(searchProbe)
-  }, [activeCitation, currentPageText])
+    const phrases = getCandidatePhrases(activeCitation, activeQuery)
+    for (const p of phrases) {
+      if (locatePhraseInText(currentPageText, p)) return true
+    }
+    const probe = (activeCitation.text || activeCitation.snippet || '').trim().slice(0, 60)
+    return !!locatePhraseInText(currentPageText, probe)
+  }, [activeCitation, currentPageText, activeQuery])
 
   return (
     <div
@@ -421,9 +536,15 @@ export default function DocumentViewer({
           <button
             type="button"
             data-testid="toggle-annotations-btn"
-            onClick={() => setShowAnnotations(!showAnnotations)}
+            onClick={() => {
+              if (isSplitPane || !fullWidth) {
+                setMobileTab((curr) => (curr === 'annotations' ? 'document' : 'annotations'))
+              } else {
+                setShowAnnotations(!showAnnotations)
+              }
+            }}
             className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
-              showAnnotations
+              (isSplitPane || !fullWidth ? mobileTab === 'annotations' : showAnnotations)
                 ? 'bg-brand-50 border-brand-300 text-brand-700 dark:bg-brand-950 dark:border-brand-800 dark:text-brand-300'
                 : 'bg-white border-surface-200 text-surface-600 hover:bg-surface-50 dark:bg-surface-800 dark:border-surface-700 dark:text-surface-300'
             }`}
@@ -447,8 +568,12 @@ export default function DocumentViewer({
         </div>
       </div>
 
-      {/* Mobile Sub-Navigation Bar (lg:hidden) */}
-      <div className="flex lg:hidden items-center border-b border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-850 p-2 gap-2 shrink-0">
+      {/* Responsive Sub-Navigation Bar: Allows toggling between Document and Annotations without horizontal squeezing */}
+      <div
+        className={`flex items-center border-b border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-850 p-2 gap-2 shrink-0 ${
+          fullWidth ? 'lg:hidden' : 'flex'
+        }`}
+      >
         <button
           type="button"
           data-testid="mobile-tab-document"
@@ -481,11 +606,15 @@ export default function DocumentViewer({
 
       {/* 2. Main Dual-Pane Body: Document Viewer (Left) + Annotations Sidebar (Right) */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Document Display Area: Full width on mobile when tab === 'document', always visible on lg */}
+        {/* Document Display Area */}
         <div
           data-testid="document-content-surface"
-          className={`flex-1 flex flex-col overflow-y-auto p-3 sm:p-6 bg-surface-100/60 dark:bg-surface-950 scroll-thin ${
-            mobileTab === 'document' ? 'flex w-full' : 'hidden lg:flex'
+          className={`flex-1 flex flex-col overflow-y-auto p-3 sm:p-6 bg-surface-100/60 dark:bg-surface-950 scroll-thin min-w-0 ${
+            fullWidth
+              ? 'flex w-full'
+              : mobileTab === 'document'
+              ? 'flex w-full'
+              : 'hidden'
           }`}
         >
           {loading ? (
@@ -545,7 +674,7 @@ export default function DocumentViewer({
               {viewMode === 'binary' && docContent?.raw_url ? (
                 <div className="rounded-2xl border border-surface-200 bg-white shadow-sm overflow-hidden dark:border-surface-800 dark:bg-surface-900 h-[650px]">
                   <iframe
-                    src={`${docContent.raw_url}#page=${currentPage}`}
+                    src={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
                     title={activeDocument}
                     className="w-full h-full border-0"
                   />
@@ -602,7 +731,7 @@ export default function DocumentViewer({
                 /* Interactive Evidence Text Viewer with Highlights */
                 <div
                   ref={textContainerRef}
-                  className="rounded-2xl border border-surface-200 bg-white p-6 sm:p-8 shadow-sm dark:border-surface-800 dark:bg-surface-900 font-sans text-sm leading-relaxed whitespace-pre-wrap"
+                  className="rounded-2xl border border-surface-200 bg-white p-6 sm:p-8 shadow-sm dark:border-surface-800 dark:bg-surface-900 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words"
                 >
                   {renderedTextWithHighlights}
                 </div>
@@ -614,16 +743,18 @@ export default function DocumentViewer({
         {/* 3. Evidence & Annotations Sidebar */}
         <div
           data-testid="annotations-surface"
-          className={`border-l border-surface-200 bg-white dark:border-surface-800 dark:bg-surface-900 flex flex-col shrink-0 ${
-            mobileTab === 'annotations'
+          className={`border-l border-surface-200 bg-white dark:border-surface-800 dark:bg-surface-900 flex flex-col shrink-0 min-w-0 ${
+            fullWidth
+              ? showAnnotations
+                ? 'hidden lg:flex lg:w-72 2xl:w-80'
+                : 'hidden'
+              : mobileTab === 'annotations'
               ? 'flex w-full'
-              : showAnnotations
-              ? 'hidden lg:flex lg:w-72 2xl:w-80'
               : 'hidden'
           }`}
         >
-          {/* Mobile Back-to-Document Quick Action */}
-          <div className="lg:hidden p-2.5 bg-brand-50/70 dark:bg-brand-950/40 border-b border-brand-100 dark:border-brand-900 flex items-center justify-between">
+          {/* Back-to-Document Quick Action */}
+          <div className={`${fullWidth ? 'lg:hidden' : 'flex'} p-2.5 bg-brand-50/70 dark:bg-brand-950/40 border-b border-brand-100 dark:border-brand-900 items-center justify-between`}>
             <button
               type="button"
               data-testid="return-to-document-btn"
