@@ -158,6 +158,13 @@ def parse_pdf(path: str, image_dir: Optional[Path] = None,
             if len(text) < 10 and ocr_fallback:  # brief §44: skippable in FAST mode
                 text = _ocr_pdf_page(page)
 
+            if not text.strip():
+                try:
+                    from backend.observability import metrics as obs_metrics
+                    obs_metrics.inc_counter("ingestion_empty_pages_total", {"file": file, "page": str(page_no)})
+                except Exception:
+                    pass
+
             segments, current_section = _section_segments(text, current_section)
             for section, segment in segments:
                 for chunk in chunk_text(segment):

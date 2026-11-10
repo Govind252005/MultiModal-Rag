@@ -22,6 +22,7 @@ export default function Header({
   onToggleTheme,
   user,
   onRequestLogout,
+  onNavigate,
 }: {
   healthData: HealthResponse | null;
   activeProvider?: ActiveProviderResponse | null;
@@ -33,6 +34,7 @@ export default function Header({
   onToggleTheme: () => void;
   user: AuthUser;
   onRequestLogout: () => void;
+  onNavigate?: (view: 'landing' | 'dashboard') => void;
 }) {
 
   return (
@@ -45,8 +47,12 @@ export default function Header({
         >
           <Menu className="h-4 w-4" />
         </button>
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold leading-tight text-slate-900 dark:text-slate-100">
+        <div
+          className="min-w-0 cursor-pointer group"
+          onClick={() => onNavigate?.('landing')}
+          title="Visit Product Tour & Landing Page"
+        >
+          <h1 className="truncate text-base font-semibold leading-tight text-slate-900 dark:text-slate-100 group-hover:text-brand-600 transition-colors">
             Multimodal Offline RAG
           </h1>
           <p className="hidden truncate text-xs text-slate-500 dark:text-slate-400 sm:block">

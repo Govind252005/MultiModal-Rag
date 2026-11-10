@@ -165,7 +165,7 @@ export function transcribe(sessionId: string, blob: Blob): Promise<TranscribeRes
 export interface QueryStreamCallbacks {
   onCitations?: (citations: Citation[]) => void
   onDelta?: (text: string) => void
-  onDone?: (info: { used_llm: boolean; metrics: StreamMetrics }) => void
+  onDone?: (info: { used_llm: boolean; metrics: StreamMetrics; citations?: Citation[] }) => void
   onError?: (err: Error) => void
 }
 
@@ -254,7 +254,7 @@ export async function queryStream(
           const text = (payload as { text?: string }).text
           if (text) callbacks.onDelta?.(text)
         } else if (eventName === 'done') {
-          callbacks.onDone?.(payload as { used_llm: boolean; metrics: StreamMetrics })
+          callbacks.onDone?.(payload as { used_llm: boolean; metrics: StreamMetrics; citations?: Citation[] })
         }
       }
     }

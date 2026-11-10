@@ -141,6 +141,13 @@ RERANK_MODEL = os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L6-v2")
 # Use BAAI/bge-reranker-large for higher quality, slower throughput:
 # RERANK_MODEL = "BAAI/bge-reranker-large"
 RERANK_BATCH_SIZE = int(os.getenv("RERANK_BATCH_SIZE", "16"))
+RERANK_WINDOW = int(os.getenv("RERANK_WINDOW", "20"))
+RERANK_MIN_SCORE = float(os.getenv("RERANK_MIN_SCORE", "-5.5"))
+
+# Offline & Telemetry Compliance (Air-gap ready)
+os.environ.setdefault("HF_HUB_OFFLINE", os.getenv("OFFLINE_MODE", "1"))
+os.environ.setdefault("TRANSFORMERS_OFFLINE", os.getenv("OFFLINE_MODE", "1"))
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 
 # ------------------------------------------------------------------ LLM (Ollama)
 # Local-inference target (AUDIT_REPORT.md / transformation brief §4-5):
@@ -151,7 +158,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "qwen3:4b")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
 # Keep the local prompt budget large enough for retrieved evidence while
 # avoiding unnecessary prompt processing for short grounded answers.
-LLM_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "3072"))
+LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", os.getenv("OLLAMA_NUM_CTX", "3072")))
 # Strict RAG answers should be short; callers can raise this for long answers.
 OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "384"))
 # Qwen3 supports an explicit "thinking" mode; keep it off by default for

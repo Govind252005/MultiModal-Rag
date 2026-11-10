@@ -410,12 +410,13 @@ export default function App() {
             }));
           },
           onDone: (info) => {
+            const updatedCitations = (info.citations && info.citations.length > 0) ? info.citations : finalCitations;
             updateMessage(aId, {
-              citations: finalCitations,
+              citations: updatedCitations,
               usedLlm: info.used_llm,
               loading: false,
             });
-            setCitations(finalCitations);
+            setCitations(updatedCitations);
             loadSessions();
           },
           onError: (err) => {
@@ -569,16 +570,19 @@ export default function App() {
   }
 
   if (!user) {
-    return (
-      <AuthPage
-        initialMode={view === 'register' ? 'register' : 'login'}
-        onSuccess={(u) => {
-          setUser(u);
-          setView('dashboard');
-        }}
-        onNavigate={setView}
-      />
-    );
+    if (view === 'register' || view === 'login') {
+      return (
+        <AuthPage
+          initialMode={view === 'register' ? 'register' : 'login'}
+          onSuccess={(u) => {
+            setUser(u);
+            setView('dashboard');
+          }}
+          onNavigate={setView}
+        />
+      );
+    }
+    return <LandingPage onNavigate={setView} user={user} />;
   }
 
   return (
@@ -649,6 +653,7 @@ export default function App() {
               onToggleTheme={toggleTheme}
               user={user}
               onRequestLogout={requestLogout}
+              onNavigate={setView}
             />
 
             {health && !health.llm_available && <LlmBanner />}

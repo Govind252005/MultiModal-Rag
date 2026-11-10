@@ -209,9 +209,10 @@ def build_image_records(
         m.update(extra)
         return m
 
-    # 1) CLIP visual vector (documents=caption preview)
+    # 1) CLIP visual vector (documents=structured description)
+    visual_text = f"[Visual Image: {file}] Caption: {caption or 'N/A'}. OCR Text: {ocr_text[:300] or 'None'}"
     records.append({
-        "target": "image", "text": caption, "image": image,
+        "target": "image", "text": visual_text, "image": image,
         "metadata": _meta({"source_type": "image", "caption": caption}),
     })
 

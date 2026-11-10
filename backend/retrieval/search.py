@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from sentence_transformers import CrossEncoder
 
@@ -31,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 from backend import config
 from backend.retrieval import embeddings, lexical_index, vector_store
+
+_SEARCH_EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="rag-search")
 
 _SECTION_NAMES = (
     "abstract", "introduction", "background", "related work", "methods",
@@ -56,12 +59,18 @@ def _visual_query(query: str) -> bool:
 
 def _normalize(hit: Dict[str, Any], channel: str) -> Dict[str, Any]:
     m = hit.get("metadata", {}) or {}
-    text = hit.get("document", "") or ""
+    text = hit.get("document", "") or hit.get("text", "") or ""
+    file = m.get("file", "unknown")
+    sid = m.get("session_id")
+    # Structured description bridge for visual image hits so LLM receives actionable text
+    if m.get("modality") == "image" or channel == "clip":
+        if not text or text.strip() in ("", "None", "N/A"):
+            text = f"[Image Evidence: {file}] Visual diagram / image match."
+        elif not text.startswith("[Image Evidence:"):
+            text = f"[Image Evidence: {file}] {text}"
     snippet = text.strip().replace("\n", " ")
     if len(snippet) > 300:
         snippet = snippet[:300].rstrip() + "…"
-    file = m.get("file", "unknown")
-    sid = m.get("session_id")
     # Use media_file (saved extracted image) when available, else the source file.
     serve_name = m.get("media_file") or file
     media_url = f"/api/media/{sid}/{serve_name}" if sid else f"/api/media/{serve_name}"
@@ -87,16 +96,16 @@ def _normalize(hit: Dict[str, Any], channel: str) -> Dict[str, Any]:
 
 
 def _citation_key(h: Dict[str, Any]) -> str:
-    if h["modality"] == "audio":
-        return f"{h['file']}|{h.get('timestamp') or h.get('start')}"
-    if h["modality"] == "document":
-        return f"{h['file']}|p{h.get('page')}"
+    if h.get("modality") == "audio":
+        return f"{h.get('file')}|{h.get('timestamp') or h.get('start')}"
+    if h.get("modality") == "document":
+        return f"{h.get('file')}|p{h.get('page')}|{h.get('source_type', 'text')}|c{h.get('chunk', 0)}"
     # image: OCR chunks stay separate; caption + visual collapse to one per image.
     if h.get("source_type") == "ocr":
-        return f"{h['file']}|ocr|{h.get('chunk')}"
+        return f"{h.get('file')}|ocr|{h.get('chunk')}"
     # Use media_file to distinguish embedded images from the same document.
-    discriminator = h.get("media_file") or "standalone"
-    return f"{h['file']}|img|{discriminator}"
+    discriminator = h.get("media_file") or h.get("id") or "standalone"
+    return f"{h.get('file')}|img|{discriminator}"
 
 
 def _merge_and_rank(text_hits, clip_hits, top_k) -> List[Dict[str, Any]]:
@@ -190,42 +199,60 @@ def _rerank(query: str, hits: List[Dict[str, Any]], top_n: int) -> List[Dict[str
     q_script = language_detect.detect_script(query)
 
     # Intelligent reranker safety: If the active model is English-only (like ms-marco)
-    # and the query is in Devanagari, Arabic, or CJK, the English tokenizer maps all tokens
-    # to [UNK], destroying valid dense multilingual retrieval. Preserve RRF fusion order.
-    if _is_english_only_reranker(config.RERANK_MODEL) and q_script != "Latin":
-        return hits[:top_n]
+    # Check query script AND retrieved document scripts so English query against Devanagari docs isn't corrupted
+    if _is_english_only_reranker(config.RERANK_MODEL):
+        if q_script != "Latin":
+            return hits[:top_n]
+        sample_doc_scripts = [
+            language_detect.detect_script((h.get("text") or h.get("snippet") or "")[:200])
+            for h in hits[:5]
+            if (h.get("text") or h.get("snippet"))
+        ]
+        if any(s != "Latin" for s in sample_doc_scripts):
+            return hits[:top_n]
 
+    rerank_window = getattr(config, "RERANK_WINDOW", 20)
+    pool = hits[:rerank_window]
     try:
+        import torch
         model = _get_reranker()
 
         pairs = [
-            [query, h.get("document", "") or h.get("snippet", "")]
-            for h in hits
+            [query, h.get("text", "") or h.get("document", "") or h.get("snippet", "")]
+            for h in pool
         ]
 
-        scores = model.predict(
-            pairs,
-            batch_size=config.RERANK_BATCH_SIZE
-        )
+        with torch.inference_mode():
+            scores = model.predict(
+                pairs,
+                batch_size=getattr(config, "RERANK_BATCH_SIZE", 16)
+            )
 
         reranked = []
-
-        for i, h in enumerate(hits):
+        for i, h in enumerate(pool):
             reranked.append({
                 **h,
                 "rerank_score": float(scores[i])
             })
 
-        reranked.sort(
-            key=lambda x: x["rerank_score"],
-            reverse=True
-        )
+        reranked.sort(key=lambda x: x["rerank_score"], reverse=True)
 
-        return reranked[:top_n]
+        min_score = getattr(config, "RERANK_MIN_SCORE", -5.5)
+        filtered = []
+        for idx, item in enumerate(reranked):
+            if idx < 3 or item["rerank_score"] >= min_score:
+                filtered.append(item)
+
+        if len(filtered) < top_n and len(hits) > len(pool):
+            filtered.extend(hits[len(pool):top_n])
+
+        return filtered[:top_n]
 
     except Exception as e:
         logger.exception("Reranker failed: %s", e)
         return hits[:top_n]
+
+
 # ------------------------------------------------------------------ text query
 def text_query(
     query: str,
@@ -240,55 +267,70 @@ def text_query(
         session_id=session_id, modality=modality, files=files, user_id=user_id, org_id=org_id)
     requested_section = _requested_section(query)
 
-    # 1) Dense text search (cached query embedding)
-    dense_text_hits = []
-    try:
-        text_vec = embeddings.embed_text_cached(query)[0].tolist()
-        dense_text_hits = vector_store.query_text(
-            text_vec, top_k=max(top_k, config.DENSE_CANDIDATES), where=where
-        )
-    except Exception as exc:
-        print(f"[search] dense text retrieval notice: {exc}")
-
-    # 2) BM25 keyword search — reads the persistent lexical index (no
-    # corpus load / re-tokenize per query; see AUDIT_REPORT.md P1-1).
-    bm25_hits = _bm25_search(
-        query, top_n=max(top_k, config.BM25_CANDIDATES),
-        user_id=user_id, session_id=session_id, modality=modality, files=files,
-        org_id=org_id,
-    )
-
-    # 3) Optional CLIP text-to-image dense branch — skipped entirely when
-    # this scope has no images at all (AUDIT_REPORT.md P1-6), instead of
-    # unconditionally embedding the query with CLIP and querying an empty
-    # collection on every text-only session.
+    # 1, 2, 3) Concurrent Dense Text, BM25, and CLIP Image search
+    dense_text_hits: List[Dict[str, Any]] = []
+    bm25_hits: List[Dict[str, Any]] = []
     clip_hits: List[Dict[str, Any]] = []
 
-    if modality in ("all", "image") and (modality == "image" or _visual_query(query)) and vector_store.has_images(
-        session_id=session_id, user_id=user_id, org_id=org_id, files=files
-    ):
+    def _fetch_dense():
         try:
-            img_where = vector_store.build_where(
-                session_id=session_id,
-                files=files,
-                user_id=user_id,
-                org_id=org_id,
-            )
-
-            clip_vec = embeddings.embed_clip_text([query])[0].tolist()
-
-            clip_hits = vector_store.query_images(
-                clip_vec,
-                top_k=max(top_k, config.DENSE_CANDIDATES),
-                where=img_where,
+            text_vec = embeddings.embed_text_cached(query)[0].tolist()
+            return vector_store.query_text(
+                text_vec, top_k=max(top_k, config.DENSE_CANDIDATES), where=where
             )
         except Exception as exc:
-            print(f"[search] dense image retrieval notice: {exc}")
+            logger.debug("[search] dense text retrieval notice: %s", exc)
+            return []
+
+    def _fetch_bm25():
+        try:
+            return _bm25_search(
+                query, top_n=max(top_k, config.BM25_CANDIDATES),
+                user_id=user_id, session_id=session_id, modality=modality, files=files,
+                org_id=org_id,
+            )
+        except Exception as exc:
+            logger.debug("[search] bm25 retrieval notice: %s", exc)
+            return []
+
+    def _fetch_clip():
+        if modality in ("all", "image") and vector_store.has_images(
+            session_id=session_id, user_id=user_id, org_id=org_id, files=files
+        ):
+            try:
+                img_where = vector_store.build_where(
+                    session_id=session_id,
+                    files=files,
+                    user_id=user_id,
+                    org_id=org_id,
+                )
+                clip_vec = embeddings.embed_clip_text([query])[0].tolist()
+                results = vector_store.query_images(
+                    clip_vec,
+                    top_k=max(top_k, config.DENSE_CANDIDATES),
+                    where=img_where,
+                )
+                if _visual_query(query):
+                    for r in results:
+                        r["score"] = r.get("score", 0.0) * 1.25
+                return results
+            except Exception as exc:
+                logger.debug("[search] dense image retrieval notice: %s", exc)
+                return []
+        return []
+
+    future_dense = _SEARCH_EXECUTOR.submit(_fetch_dense)
+    future_bm25 = _SEARCH_EXECUTOR.submit(_fetch_bm25)
+    future_clip = _SEARCH_EXECUTOR.submit(_fetch_clip)
+
+    dense_text_hits = future_dense.result()
+    bm25_hits = future_bm25.result()
+    clip_hits = future_clip.result()
 
     # 4) Merge using RRF
     merged = _rrf_merge([dense_text_hits, bm25_hits, clip_hits], k=config.FUSION_RRF_K)
 
-    # 5) Normalize fields and dedupe by citation target
+    # 5) Normalize fields and dedupe by citation target (preserving all distinct chunks)
     normalized = [_normalize(h, "hybrid") for h in merged]
     deduped: Dict[str, Dict[str, Any]] = {}
     for n in normalized:
@@ -298,18 +340,12 @@ def text_query(
             deduped[key] = n
     candidates = sorted(deduped.values(), key=lambda x: x["score"], reverse=True)
 
-    # Apply section scope after dense/BM25/CLIP fusion so unrelated channels
-    # cannot reintroduce passages outside the requested document section.
+    # Soft section boost instead of destructive pruning so cross-section context remains available
     if requested_section:
-        section_candidates = [h for h in candidates if h.get("section")]
-        # Older ingested chunks may not have section metadata. Do not turn
-        # valid retrieval into a false empty result in that case; use the
-        # normal semantic/lexical ranking until those files are re-ingested.
-        if section_candidates:
-            candidates = [
-                h for h in section_candidates
-                if h.get("section") == requested_section
-            ]
+        for c in candidates:
+            if c.get("section") == requested_section:
+                c["score"] = c["score"] * 1.35
+        candidates.sort(key=lambda x: x["score"], reverse=True)
 
     # 6) Cross-encoder rerank and return top_k (default 5)
     reranked = _rerank(query, candidates, top_n=top_k)

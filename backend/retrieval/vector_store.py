@@ -244,10 +244,16 @@ def delete_file(
     return removed
 
 
-def delete_session(session_id: str) -> int:
-    """Remove every chunk belonging to a chat session."""
+def delete_session(
+    session_id: str,
+    user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
+) -> int:
+    """Remove every chunk belonging to a chat session, scoped to user and org if given."""
     removed = 0
-    where = {"session_id": session_id}
+    where = build_where(session_id=session_id, user_id=user_id, org_id=org_id)
+    if not where:
+        where = {"session_id": session_id}
     for col in (_text_col, _image_col):
         got = col.get(where=where, include=[])
         ids = got.get("ids", [])

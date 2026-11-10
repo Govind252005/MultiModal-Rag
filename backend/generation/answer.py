@@ -62,13 +62,18 @@ def _citation(index: int, hit: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _add_confidence(citations: List[Dict[str, Any]]) -> None:
-    scores = [c.get("score") or 0.0 for c in citations]
+    scores = [float(c.get("score") or 0.0) for c in citations]
     if not scores:
         return
     mn, mx = min(scores), max(scores)
-    rng = mx - mn if mx != mn else 1.0
     for c in citations:
-        value = round(((c.get("score") or 0.0) - mn) / rng * 100)
+        score = float(c.get("score") or 0.0)
+        # Smoothly calibrated confidence score with a 45% floor for valid retrieved citations
+        if mx > mn:
+            norm = (score - mn) / (mx - mn)
+            value = round(45.0 + norm * 50.0)
+        else:
+            value = 85
         c["relative_relevance"] = value
         c["confidence"] = value  # deprecated alias — see _citation()'s comment
 
@@ -83,6 +88,10 @@ _CITATION_INDEX_RE = re.compile(
 )
 _STYLE_ONLY_RE = re.compile(
     r"^\s*(table|json|markdown|bullet|bullets|list|format|tabular)\b",
+    re.IGNORECASE,
+)
+_ANALYTICAL_QUERY_RE = re.compile(
+    r"\b(why|how|compare|difference|valid|invalid|reject|rejected|explain|verify|between|all|list|summary|summarize)\b",
     re.IGNORECASE,
 )
 
@@ -128,6 +137,8 @@ def _heading_section_answer(
 def _direct_field_answer(query: str, hits: List[Dict[str, Any]],
                          citations: List[Dict[str, Any]]) -> Optional[str]:
     """Answer unambiguous label/value questions without generative drift."""
+    if not query or _ANALYTICAL_QUERY_RE.search(query):
+        return None
     q = (query or "").lower()
     section_answer = _heading_section_answer(query, hits)
     if section_answer is not None:
@@ -140,7 +151,7 @@ def _direct_field_answer(query: str, hits: List[Dict[str, Any]],
         )
     if "invoice" in q and ("no" in q or "number" in q):
         field_patterns.append(
-            re.compile(r"\binvoice\s*(?:no\.?|number)\s*[:#-]?\s*"
+            re.compile(r"\binvoice\s*(?:no\.?|number)?\s*[:#-]?\s*"
                        r"([A-Z0-9][A-Z0-9_/-]*)\b", re.IGNORECASE)
         )
     if "invoice" in q and re.search(r"to whom|issued to|billed to|recipient", q):
@@ -208,7 +219,7 @@ def _direct_field_answer(query: str, hits: List[Dict[str, Any]],
     if re.search(r"\b(?:who\s+submitted|submitted\s+by|submitted)\b", q):
         field_patterns.append(
             re.compile(
-                r"\b(?:submitted\s+by)\s*[:#-]?\s*(?:\r?\n\s*)?([A-Z0-9][A-Z0-9\s()|&.-]{2,})",
+                r"\b(?:submitted\s+by)\s*[:#-]?\s*(?:\r?\n\s*)?([^\r\n]+)",
                 re.IGNORECASE,
             )
         )
@@ -263,6 +274,8 @@ def _restrict_citations_to_answer(
         if index not in referenced and 1 <= index <= len(citations):
             referenced.append(index)
     if not referenced:
+        if citations:
+            return answer, [citations[0]]
         return answer, []
 
     remap = {old: new for new, old in enumerate(referenced, start=1)}

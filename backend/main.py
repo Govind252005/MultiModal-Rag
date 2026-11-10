@@ -150,8 +150,13 @@ _SECURITY_HEADERS = {
 @app.middleware("http")
 async def _security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
+    is_media = request.url.path.startswith("/api/media/")
     for header, value in _SECURITY_HEADERS.items():
+        if is_media and header == "X-Frame-Options":
+            continue
         response.headers.setdefault(header, value)
+    if is_media and "X-Frame-Options" in response.headers:
+        del response.headers["X-Frame-Options"]
     # HSTS only makes sense once you're actually serving over HTTPS (brief
     # §123) — setting it on a plain-HTTP local/dev server would tell
     # browsers to force HTTPS on a host that doesn't have it yet, locking
@@ -223,9 +228,11 @@ def _warmup():
         return
     def _run():
         try:
-            from backend.retrieval import embeddings            
+            from backend.retrieval import embeddings, search            
             embeddings.warmup()
-            print("[startup] embedding models warm.")
+            if config.RERANK_ENABLED:
+                search._get_reranker()
+            print("[startup] embedding and reranker models warm.")
         except Exception as exc:
             print(f"[startup] warmup skipped: {exc}")
     threading.Thread(target=_run, daemon=True).start()
@@ -1551,7 +1558,7 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
         # Optional query enhancement — only changes the SEARCH string; the
         # retrieval pipeline itself is unchanged and the ANSWER still uses the
         # user's original query.
-        search_text = req.query
+        search_text = query_enhance.contextualize_followup_query(req.query, history=history)
         if use_rewrite and config.QUERY_REWRITE_ENABLED:
             search_text = query_enhance.query_rewrite(
                 search_text, history=history, provider=resolved_provider,
@@ -1642,7 +1649,7 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
     resolved_model = _resolve_model(req.model, resolved_provider, user["id"])
     history = _history_for(req.session_id)
 
-    search_text = req.query
+    search_text = query_enhance.contextualize_followup_query(req.query, history=history)
     if _flag(req.rewrite, config.QUERY_REWRITE_ENABLED) and config.QUERY_REWRITE_ENABLED:
         search_text = query_enhance.query_rewrite(
             search_text, history=history, provider=resolved_provider, user_id=user["id"])
@@ -1786,7 +1793,7 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
             "model": resolved_model,
             "metrics": eval_metrics,
         })
-        yield f"event: done\ndata: {json.dumps({'used_llm': used_llm, 'metrics': metrics})}\n\n"
+        yield f"event: done\ndata: {json.dumps({'used_llm': used_llm, 'metrics': metrics, 'citations': answer_citations if used_llm else ctx['citations']})}\n\n"
 
     return StreamingResponse(
         event_stream(), media_type="text/event-stream",
@@ -2204,6 +2211,17 @@ def get_document_content(session_id: str, filename: str, user: dict = Depends(ge
             }
         except Exception as exc:
             logger.warning("XLSX reading error for %s: %s", clean_name, exc)
+
+    # Audio recording
+    if ext in {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"}:
+        return {
+            "filename": clean_name,
+            "modality": "audio",
+            "has_pages": False,
+            "page_count": None,
+            "raw_url": raw_url,
+            "file_size": file_size,
+        }
 
     # Plain text / Markdown / CSV / JSON / fallback
     content = ""

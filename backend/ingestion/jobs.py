@@ -17,24 +17,59 @@ no new hard dependency. The synchronous /api/ingest endpoint is untouched.
 
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from backend import config
 from backend.ingestion import ingest as ingest_mod
+
 # One shared worker pool for the whole process.
 _executor = ThreadPoolExecutor(max_workers=max(1, config.INGEST_ASYNC_WORKERS))
 
 # job_id -> job state. Guarded by _lock (worker threads mutate it).
 _jobs: Dict[str, Dict[str, Any]] = {}
 _lock = threading.Lock()
+_JOBS_FILE = Path(getattr(config, "STORE_DIR", getattr(config, "STORAGE_DIR", Path("storage")))) / "ingestion_jobs.json"
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _save_jobs_to_disk() -> None:
+    try:
+        _JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = _JOBS_FILE.with_suffix(".tmp")
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(_jobs, f, indent=2)
+        temp_file.replace(_JOBS_FILE)
+    except Exception as exc:
+        pass
+
+
+def _load_jobs_from_disk() -> None:
+    if not _JOBS_FILE.exists():
+        return
+    try:
+        with open(_JOBS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                for jid, job in data.items():
+                    if job.get("status") in ("queued", "running"):
+                        job["status"] = "interrupted"
+                        job["error"] = "Process restarted while job was in-flight"
+                        job["updated_at"] = _now()
+                    _jobs[jid] = job
+    except Exception:
+        pass
+
+
+_load_jobs_from_disk()
 
 
 def _set(job_id: str, **fields: Any) -> None:
@@ -42,6 +77,7 @@ def _set(job_id: str, **fields: Any) -> None:
         job = _jobs.get(job_id)
         if job is not None:
             job.update(fields)
+            _save_jobs_to_disk()
 
 
 def submit(
@@ -76,6 +112,7 @@ def submit(
             "updated_at": _now(),
             "error": None,
         }
+        _save_jobs_to_disk()
     _executor.submit(_run, job_id, paths, session_id, user_id, org_id_val, on_complete, mode)
     return job_id
 
@@ -97,6 +134,7 @@ def _run(job_id: str, paths: List[str], session_id: str, user_id: str, org_id: s
                 job["completed"] += 1
                 job["results"] = list(results)
                 job["updated_at"] = _now()
+                _save_jobs_to_disk()
 
     try:
         if on_complete is not None:

@@ -221,7 +221,7 @@ function MarkdownTable({
 function renderInline(
   text: string,
   onCitationClick: (index: number) => void,
-  validIndexes?: Set<number>
+  _validIndexes?: Set<number>
 ): React.ReactNode {
   // Split by citations: [1], 【1】, ［1］, [citation: 1], [cite: 1], etc.
   const citationParts = text.split(/(?:\[|【|［)(?:citation:|cite:|source:)?\s*(\d+)\s*(?:\]|】|］)/gi)
@@ -230,15 +230,13 @@ function renderInline(
     const isCitation = idx % 2 === 1
     if (isCitation) {
       const num = parseInt(part, 10)
-      if (validIndexes && !validIndexes.has(num)) {
-        return `[${part}]`
-      }
       return (
         <button
           key={`cit-${idx}`}
           type="button"
           onClick={() => onCitationClick(num)}
-          className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 mx-0.5 rounded text-[10px] font-bold bg-brand-100 text-brand-700 hover:bg-brand-600 hover:text-white dark:bg-brand-950 dark:text-brand-300 dark:hover:bg-brand-600 transition-colors select-none align-baseline cursor-pointer"
+          aria-label={`View supporting evidence source citation ${num}`}
+          className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 mx-0.5 rounded text-[10px] font-bold bg-brand-100 text-brand-700 hover:bg-brand-600 hover:text-white dark:bg-brand-950 dark:text-brand-300 dark:hover:bg-brand-600 transition-colors select-none align-baseline cursor-pointer shadow-2xs"
           title={`View supporting evidence source [${num}]`}
         >
           {num}

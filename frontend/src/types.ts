@@ -43,7 +43,7 @@ export interface DocumentSheet {
 
 export interface DocumentContentResponse {
   filename: string
-  modality: 'pdf' | 'docx' | 'pptx' | 'xlsx' | 'text'
+  modality: 'pdf' | 'docx' | 'pptx' | 'xlsx' | 'text' | 'audio' | 'image'
   has_pages: boolean
   page_count: number | null
   pages?: DocumentPage[]

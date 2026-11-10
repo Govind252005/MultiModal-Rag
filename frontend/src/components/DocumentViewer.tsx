@@ -15,6 +15,7 @@ import {
   Presentation,
   CheckCircle2,
   Sparkles,
+  Music,
 } from 'lucide-react'
 import type { Citation, DocumentContentResponse } from '../types'
 import { getDocumentContent, getToken } from '../api'
@@ -84,11 +85,29 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
   return null
 }
 
+function snapToWordBoundary(s: string, maxLen: number): string {
+  if (s.length <= maxLen) return s.trim()
+  const cut = s.slice(0, maxLen)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > 15 ? cut.slice(0, lastSpace) : cut).trim()
+}
+
 function getCandidatePhrases(cit: Citation, activeQuery?: string, activeAnswer?: string): string[] {
   const fullText = (cit.text || cit.snippet || '').trim()
   if (!fullText) return []
 
   const candidates: string[] = []
+
+  // 0. If user asked "who submitted" or author/supervisor query, prioritize exact submitter name
+  if (activeQuery && /\b(who|author|submit|submitted|prepared|student|supervisor)\b/i.test(activeQuery)) {
+    const authorMatch = fullText.match(/(?:submitted\s+by|author|prepared\s+by)[:\s]*\n*([^\r\n]+)/i)
+    if (authorMatch && authorMatch[1]) {
+      const name = authorMatch[1].trim()
+      if (name.length >= 3 && !candidates.includes(name)) {
+        candidates.push(name)
+      }
+    }
+  }
 
   // 1. If activeAnswer is present, try matching the exact answer text or key answer phrase
   if (activeAnswer) {
@@ -99,7 +118,7 @@ function getCandidatePhrases(cit: Citation, activeQuery?: string, activeAnswer?:
 
     if (cleanAnswer && cleanAnswer.length >= 3) {
       // Direct whole clean answer
-      candidates.push(cleanAnswer)
+      if (!candidates.includes(cleanAnswer)) candidates.push(cleanAnswer)
       // If multi-sentence or has punctuation, test individual answer sentences
       const ansLines = cleanAnswer.split(/(?:\r?\n+|(?<=[.!?])\s+)/).map(s => s.trim()).filter(s => s.length >= 6)
       for (const line of ansLines) {
@@ -168,7 +187,7 @@ function getCandidatePhrases(cit: Citation, activeQuery?: string, activeAnswer?:
   }
 
   if (!candidates.includes(fullText)) {
-    candidates.push(fullText.slice(0, 100))
+    candidates.push(snapToWordBoundary(fullText, 90))
   }
 
   return candidates
@@ -201,6 +220,17 @@ export default function DocumentViewer({
 
   const textContainerRef = useRef<HTMLDivElement>(null)
   const activeHighlightRef = useRef<HTMLElement | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  useEffect(() => {
+    if (activeCitation && (activeCitation.modality === 'audio' || docContent?.modality === 'audio')) {
+      const startSec = Number(activeCitation.start || activeCitation.timestamp || 0)
+      if (audioRef.current && !isNaN(startSec) && startSec > 0) {
+        audioRef.current.currentTime = startSec
+        audioRef.current.play().catch(() => {/* browser auto-play policy catch */})
+      }
+    }
+  }, [activeCitation, docContent])
 
   const effectiveSessionId = sessionId || activeCitation?.session_id || ''
 
@@ -721,7 +751,7 @@ export default function DocumentViewer({
                   <div className="flex items-center justify-between px-3 py-1.5 bg-surface-50 dark:bg-surface-850 border-b border-surface-200 dark:border-surface-800 text-xs text-surface-500">
                     <span>Native PDF Document Viewer (Page {currentPage})</span>
                     <a
-                      href={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}`}
+                      href={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-brand-600 hover:text-brand-700 dark:text-brand-400 font-medium underline flex items-center gap-1"
@@ -729,11 +759,61 @@ export default function DocumentViewer({
                       Open PDF in new tab &rarr;
                     </a>
                   </div>
-                  <iframe
-                    src={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
-                    title={activeDocument}
+                  <object
+                    data={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
+                    type="application/pdf"
                     className="w-full flex-1 border-0"
-                  />
+                    title={activeDocument}
+                  >
+                    <iframe
+                      src={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
+                      title={activeDocument}
+                      className="w-full h-full border-0"
+                    />
+                  </object>
+                </div>
+              ) : (docContent?.modality === 'audio' || activeCitation?.modality === 'audio') ? (
+                /* Interactive Audio Player & Synchronized Speech Transcript */
+                <div className="rounded-2xl border border-surface-200 bg-white p-6 sm:p-8 shadow-sm dark:border-surface-800 dark:bg-surface-900 flex flex-col gap-6">
+                  <div className="flex items-center gap-3 pb-4 border-b border-surface-100 dark:border-surface-800">
+                    <div className="h-10 w-10 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 shadow-2xs">
+                      <Music className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-surface-900 dark:text-surface-100 text-sm">
+                        Audio Recording &amp; Speech Evidence
+                      </h3>
+                      <p className="text-xs text-surface-500">
+                        {activeCitation?.start !== undefined
+                          ? `Active citation timestamp: ${Math.floor(Number(activeCitation.start) / 60)}:${String(Math.floor(Number(activeCitation.start) % 60)).padStart(2, '0')}`
+                          : 'Interactive audio player with timestamp-synchronized seeking'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {docContent?.raw_url && (
+                    <div className="rounded-xl bg-surface-50 dark:bg-surface-850 p-4 border border-surface-200 dark:border-surface-800">
+                      <audio
+                        ref={audioRef}
+                        controls
+                        src={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}`}
+                        className="w-full"
+                        aria-label="Audio evidence player"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-surface-500">
+                      Speech Transcript Evidence
+                    </span>
+                    <div
+                      ref={textContainerRef}
+                      className="rounded-xl border border-surface-200 bg-surface-50/50 p-4 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words dark:border-surface-800 dark:bg-surface-850/50"
+                    >
+                      {renderedTextWithHighlights}
+                    </div>
+                  </div>
                 </div>
               ) : docContent?.modality === 'xlsx' && docContent.sheets ? (
                 /* Spreadsheet Grid Viewer */

@@ -134,7 +134,7 @@ def sanitize_untrusted_text(text: str) -> str:
     if not text:
         return ""
     # Strip or neutralize special model control tokens
-    for tok in ("<|im_start|>", "<|im_end|>", "[INST]", "[/INST]", "<<SYS>>", "<</SYS>>"):
+    for tok in ("<|im_start|>", "<|im_end|>", "[INST]", "[/INST]", "<<SYS>>", "<</SYS>>", "<think>", "</think>", "<Thought>", "</Thought>"):
         text = text.replace(tok, f"[neutralized:{tok.strip('<>[]|')}]")
     # Neutralize closing delimiter escape tags specific to the structural envelope
     for tag in ("</document_content>", "</context_source>", "<|system|>", "</|system|>"):

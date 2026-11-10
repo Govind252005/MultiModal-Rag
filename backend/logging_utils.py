@@ -21,6 +21,7 @@ framework dependency for what is currently two files' worth of output.
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -30,6 +31,17 @@ from typing import Any, Optional
 from backend import config
 
 _MAX_AUDIT_LOG_BYTES = 10 * 1024 * 1024  # 10MB — brief §55 "implement log rotation"
+_TOKEN_RE = re.compile(r"token=[^&\s]+", re.IGNORECASE)
+
+
+def _scrub_tokens(data: Any) -> Any:
+    if isinstance(data, str):
+        return _TOKEN_RE.sub("token=[REDACTED]", data)
+    if isinstance(data, dict):
+        return {k: _scrub_tokens(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_scrub_tokens(v) for v in data]
+    return data
 
 
 def new_request_id() -> str:
@@ -42,7 +54,8 @@ def _now() -> str:
 
 def log_request(request_id: str, **fields: Any) -> None:
     try:
-        print("[request] " + json.dumps({"request_id": request_id, "timestamp": _now(), **fields},
+        scrubbed = _scrub_tokens(fields)
+        print("[request] " + json.dumps({"request_id": request_id, "timestamp": _now(), **scrubbed},
                                         ensure_ascii=False, default=str))
     except Exception:
         pass

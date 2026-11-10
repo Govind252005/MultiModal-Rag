@@ -351,8 +351,8 @@ export default function Composer({
 
           {activeProvider?.mode === 'cloud' && (
             <span
-              className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 py-1 px-2.5 text-xs font-medium text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300 shadow-2xs"
-              title={`Cloud Generation Active: Using ${activeProvider.provider} (${activeProvider.model}). Prompts & top-${topK} retrieved passages transmitted via encrypted TLS. Document storage and vector search remain 100% on-premises.`}
+              className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 py-0.5 px-2 text-xs font-medium text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300 shadow-2xs"
+              title={`Cloud LLM: ${activeProvider.provider} (${activeProvider.model})`}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-sky-500 animate-pulse shrink-0" />
               <span className="font-semibold uppercase">{activeProvider.provider}</span>

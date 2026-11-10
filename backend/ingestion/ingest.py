@@ -51,7 +51,7 @@ def _mode_flags(mode: str) -> Dict[str, bool]:
         "ocr_fallback": mode in ("balanced", "max_quality"),
         "extract_tables": mode in ("balanced", "max_quality"),
         "extract_embedded_images": mode == "max_quality",
-        "caption_images": False,
+        "caption_images": mode == "max_quality",
     }
 
 
@@ -124,9 +124,6 @@ def ingest_file(path: str, session_id: Optional[str] = None,
         print(f"[ingest] {file} unchanged (hash+pipeline version+mode match) — skipping re-ingestion")
         return {"file": file, "modality": modality, "chunks": 0, "skipped_duplicate": True}
 
-    # Upsert within this session.
-    vector_store.delete_file(file, session_id=session_id)
-
     # Embedded images are saved next to the source file — that is exactly the
     # directory /api/media/{session}/{name} serves from, so they render inline.
     image_dir = Path(path).parent
@@ -159,17 +156,21 @@ def ingest_file(path: str, session_id: Optional[str] = None,
     image_recs = [r for r in records if r["target"] == "image"]
 
     embed_start = time.perf_counter()
-    if text_recs:
-        vecs = embeddings.embed_text([r["text"] for r in text_recs])
+    text_vecs = embeddings.embed_text([r["text"] for r in text_recs]) if text_recs else None
+    image_vecs = embeddings.embed_clip_image([r["image"] for r in image_recs]) if image_recs else None
+
+    # Atomic swap: Delete prior chunks ONLY AFTER memory parsing & embeddings succeed
+    vector_store.delete_file(file, session_id=session_id, user_id=user_id, org_id=org_id_val)
+
+    if text_recs and text_vecs is not None:
         vector_store.add_text_chunks(
-            ids=[uuid.uuid4().hex for _ in text_recs], embeddings=vecs.tolist(),
+            ids=[uuid.uuid4().hex for _ in text_recs], embeddings=text_vecs.tolist(),
             documents=[r["text"] for r in text_recs],
             metadatas=[r["metadata"] for r in text_recs])
 
-    if image_recs:
-        vecs = embeddings.embed_clip_image([r["image"] for r in image_recs])
+    if image_recs and image_vecs is not None:
         vector_store.add_images(
-            ids=[uuid.uuid4().hex for _ in image_recs], embeddings=vecs.tolist(),
+            ids=[uuid.uuid4().hex for _ in image_recs], embeddings=image_vecs.tolist(),
             documents=[r["text"] for r in image_recs],
             metadatas=[r["metadata"] for r in image_recs])
     embed_ms = (time.perf_counter() - embed_start) * 1000

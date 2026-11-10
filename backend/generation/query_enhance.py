@@ -16,10 +16,51 @@ hyde_passage(query, provider, user_id)
 
 from __future__ import annotations
 
+import re
 from typing import List, Optional
 
 from backend import config
 from backend.generation.providers import router
+
+_COREFERENCE_MARKERS = re.compile(
+    r"\b(it|its|he|his|him|she|her|they|their|them|that|those|this|these|the second|the first|elaborate|more about|tell me more)\b",
+    re.IGNORECASE,
+)
+
+
+def contextualize_followup_query(
+    query: str, history: Optional[List[dict]] = None
+) -> str:
+    """Zero-latency heuristic coreference contextualizer for multi-turn search."""
+    if not history or not query:
+        return query
+    clean_q = query.strip()
+    words = clean_q.split()
+    needs_context = bool(_COREFERENCE_MARKERS.search(clean_q)) or len(words) < 6
+    if not needs_context:
+        return query
+
+    prev_user_text = ""
+    for turn in reversed(history):
+        role = turn.get("role", "")
+        text = turn.get("text", "") or turn.get("content", "")
+        if role == "user" and text.strip():
+            prev_user_text = text.strip()
+            break
+
+    if not prev_user_text:
+        return query
+
+    stop_words = {"what", "when", "where", "which", "who", "whom", "whose", "why", "how", "tell", "does", "have", "with", "this", "that", "from", "show", "give"}
+    prev_tokens = [
+        w for w in re.findall(r"\b[A-Za-z0-9_-]+\b", prev_user_text)
+        if len(w) > 3 and w.lower() not in stop_words
+    ]
+    if not prev_tokens:
+        return query
+
+    context_hint = " ".join(prev_tokens[:4])
+    return f"{context_hint} {clean_q}"
 
 _REWRITE_SYSTEM = (
     "You are a search-query rewriter. "

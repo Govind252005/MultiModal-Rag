@@ -36,55 +36,79 @@ def create_backup(
         "components": {},
     }
 
-    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        # 1. Back up SQLite lexical index using SQLite backup API if present
-        sqlite_file = src_store / "lexical_index.sqlite3"
-        if sqlite_file.exists():
-            # Flush and safely copy SQLite WAL state
+    temp_sqlite = output_path.parent / f"snap_{output_path.stem}.sqlite3"
+    use_temp = False
+    try:
+        with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            # 1. Back up SQLite lexical index using SQLite backup API (WAL-safe hot backup)
+            sqlite_file = src_store / "lexical_index.sqlite3"
+            if sqlite_file.exists():
+                src_con = None
+                dst_con = None
+                try:
+                    src_con = sqlite3.connect(str(sqlite_file))
+                    dst_con = sqlite3.connect(str(temp_sqlite))
+                    src_con.backup(dst_con)
+                    use_temp = True
+                except Exception as exc:
+                    print(f"[backup] native sqlite backup notice: {exc}")
+                finally:
+                    if dst_con:
+                        try:
+                            dst_con.close()
+                        except Exception:
+                            pass
+                    if src_con:
+                        try:
+                            src_con.close()
+                        except Exception:
+                            pass
+
+                target_file = temp_sqlite if (use_temp and temp_sqlite.exists()) else sqlite_file
+                zf.write(target_file, arcname="storage/lexical_index.sqlite3")
+                manifest["components"]["lexical_index"] = True
+
+            # 2. Back up users, collections, audit logs, and secret key
+            for fname in ["users.json", "collections.json", "audit_log.jsonl", "secret.key"]:
+                p = src_store / fname
+                if p.exists():
+                    zf.write(p, arcname=f"storage/{fname}")
+                    manifest["components"][fname] = True
+
+            # 3. Back up Chroma vector store
+            chroma_dir = src_store / "chroma"
+            if chroma_dir.exists():
+                for f in chroma_dir.rglob("*"):
+                    if f.is_file():
+                        arcname = f"storage/chroma/{f.relative_to(chroma_dir).as_posix()}"
+                        zf.write(f, arcname=arcname)
+                manifest["components"]["chroma"] = True
+
+            # 4. Back up session metadata
+            sess_dir = src_store / "sessions"
+            if sess_dir.exists():
+                for f in sess_dir.rglob("*.json"):
+                    arcname = f"storage/sessions/{f.name}"
+                    zf.write(f, arcname=arcname)
+                manifest["components"]["sessions"] = True
+
+            # 5. Back up uploaded raw documents
+            if src_data.exists():
+                doc_count = 0
+                for f in src_data.rglob("*"):
+                    if f.is_file():
+                        arcname = f"data/{f.relative_to(src_data).as_posix()}"
+                        zf.write(f, arcname=arcname)
+                        doc_count += 1
+                manifest["components"]["raw_documents"] = doc_count
+
+            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+    finally:
+        if temp_sqlite.exists():
             try:
-                con = sqlite3.connect(str(sqlite_file))
-                con.execute("PRAGMA wal_checkpoint(FULL);")
-                con.close()
+                temp_sqlite.unlink(missing_ok=True)
             except Exception:
                 pass
-            zf.write(sqlite_file, arcname="storage/lexical_index.sqlite3")
-            manifest["components"]["lexical_index"] = True
-
-        # 2. Back up users, collections, audit logs, and secret key
-        for fname in ["users.json", "collections.json", "audit_log.jsonl", "secret.key"]:
-            p = src_store / fname
-            if p.exists():
-                zf.write(p, arcname=f"storage/{fname}")
-                manifest["components"][fname] = True
-
-        # 3. Back up Chroma vector store
-        chroma_dir = src_store / "chroma"
-        if chroma_dir.exists():
-            for f in chroma_dir.rglob("*"):
-                if f.is_file():
-                    arcname = f"storage/chroma/{f.relative_to(chroma_dir).as_posix()}"
-                    zf.write(f, arcname=arcname)
-            manifest["components"]["chroma"] = True
-
-        # 4. Back up session metadata
-        sess_dir = src_store / "sessions"
-        if sess_dir.exists():
-            for f in sess_dir.rglob("*.json"):
-                arcname = f"storage/sessions/{f.name}"
-                zf.write(f, arcname=arcname)
-            manifest["components"]["sessions"] = True
-
-        # 5. Back up uploaded raw documents
-        if src_data.exists():
-            doc_count = 0
-            for f in src_data.rglob("*"):
-                if f.is_file():
-                    arcname = f"data/{f.relative_to(src_data).as_posix()}"
-                    zf.write(f, arcname=arcname)
-                    doc_count += 1
-            manifest["components"]["raw_documents"] = doc_count
-
-        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
 
     return {
         "status": "success",
