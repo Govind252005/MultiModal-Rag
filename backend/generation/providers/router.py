@@ -124,7 +124,7 @@ class Router:
             else:
                 try:
                     if name == "ollama":
-                        text = prov.generate_answer(system, user, history=history)
+                        text = prov.generate_answer(system, user, history=history, model=model)
                     else:
                         text = prov.generate_answer(
                             system, user, history=history,
@@ -220,13 +220,14 @@ class Router:
                     "user_id": user_id,
                     "image_paths": image_paths,
                 }
-                if name != "ollama" and model:
+                if model:
                     stream_kwargs["model"] = model
 
                 for chunk in prov.stream_answer(
                     system, user, **stream_kwargs
                 ):
                     if chunk.get("done"):
+                        circuit_breaker.record_success(name)
                         metrics = dict(chunk.get("metrics") or {})
                         metrics.setdefault("provider", name)
                         metrics["requested_provider"] = requested_name

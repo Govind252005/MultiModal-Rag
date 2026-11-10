@@ -29,6 +29,7 @@ export interface DocumentViewerProps {
   isSplitView?: boolean
   onToggleSplit?: () => void
   activeQuery?: string
+  activeAnswer?: string
 }
 
 function escapeRegex(s: string): string {
@@ -51,7 +52,7 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
     return { start: lowerIdx, end: lowerIdx + clean.length }
   }
 
-  // 3. Multi-word regex match across newlines/whitespace (zero drift, exact page indices)
+  // 3. Multi-word regex match across newlines/whitespace (zero drift, exact word boundary indices)
   const words = clean.split(/\s+/).filter(Boolean)
   if (words.length === 0) return null
 
@@ -68,10 +69,12 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
     const subWords = words.slice(0, len)
     const pattern = subWords.map(escapeRegex).join('\\s+')
     try {
-      const rx = new RegExp(pattern, 'iu')
+      // Require word boundaries or whitespace so we never cut words (e.g. 'in' into 'i')
+      const rx = new RegExp(`(?:^|\\s|\\b)(${pattern})(?:\\b|\\s|$)`, 'iu')
       const match = rx.exec(pageText)
-      if (match) {
-        return { start: match.index, end: match.index + match[0].length }
+      if (match && match[1]) {
+        const offset = match.index + match[0].indexOf(match[1])
+        return { start: offset, end: offset + match[1].length }
       }
     } catch {
       // ignore regex syntax issues
@@ -81,11 +84,52 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
   return null
 }
 
-function getCandidatePhrases(cit: Citation, activeQuery?: string): string[] {
+function getCandidatePhrases(cit: Citation, activeQuery?: string, activeAnswer?: string): string[] {
   const fullText = (cit.text || cit.snippet || '').trim()
   if (!fullText) return []
 
   const candidates: string[] = []
+
+  // 1. If activeAnswer is present, try matching the exact answer text or key answer phrase
+  if (activeAnswer) {
+    const cleanAnswer = activeAnswer
+      .replace(/(?:\[|【|［)\s*\d+\s*(?:\]|】|］)/g, '')
+      .replace(/^\[LLM unavailable[^\]]*\]/i, '')
+      .trim()
+
+    if (cleanAnswer && cleanAnswer.length >= 3) {
+      // Direct whole clean answer
+      candidates.push(cleanAnswer)
+      // If multi-sentence or has punctuation, test individual answer sentences
+      const ansLines = cleanAnswer.split(/(?:\r?\n+|(?<=[.!?])\s+)/).map(s => s.trim()).filter(s => s.length >= 6)
+      for (const line of ansLines) {
+        if (!candidates.includes(line)) candidates.push(line)
+      }
+    }
+  }
+
+  // 2. Multi-line entity patterns (e.g. "Submitted by\nGOVIND SHREELOCHAN", "Aim\nTo specify...")
+  const submittedMulti = fullText.match(/submitted\s+by[:\s]*\n*([^\r\n]+)/i)
+  if (submittedMulti && submittedMulti[1]) {
+    const authorName = submittedMulti[1].trim()
+    if (authorName.length >= 3 && !candidates.includes(authorName)) {
+      candidates.push(authorName)
+    }
+    const fullSubmittedBlock = submittedMulti[0].trim()
+    if (!candidates.includes(fullSubmittedBlock)) {
+      candidates.push(fullSubmittedBlock)
+    }
+  }
+
+  const aimMulti = fullText.match(/\baim[:\s]*\n*([^\r\n]+)/i)
+  if (aimMulti && aimMulti[1]) {
+    const aimText = aimMulti[1].trim()
+    if (aimText.length >= 6 && !candidates.includes(aimText)) {
+      candidates.push(aimText)
+    }
+  }
+
+  // 3. Segment analysis from citation text
   const rawSegments = fullText
     .split(/(?:\r?\n+|(?<=[.!?])\s+)/)
     .map((s) => s.trim())
@@ -100,20 +144,20 @@ function getCandidatePhrases(cit: Citation, activeQuery?: string): string[] {
       for (const w of qWords) {
         if (segLower.includes(w)) score += 3
       }
-      if (/submitted\s+by|author|supervisor|prepared\s+by|total|section|liability|rule/i.test(seg)) {
-        score += 4
+      if (/submitted\s+by|author|supervisor|prepared\s+by|aim|theory|total|section|liability|rule/i.test(seg)) {
+        score += 5
       }
       return { seg, score }
     })
     scored.sort((a, b) => b.score - a.score)
     for (const item of scored) {
-      if (item.score > 0) candidates.push(item.seg)
+      if (item.score > 0 && !candidates.includes(item.seg)) candidates.push(item.seg)
     }
   }
 
   // Also prioritize lines with salient entity prefixes
   for (const seg of rawSegments) {
-    if (/submitted\s+by|author|supervisor|section|rule|article|fact/i.test(seg)) {
+    if (/submitted\s+by|author|supervisor|aim|theory|section|rule|article|fact/i.test(seg)) {
       if (!candidates.includes(seg)) candidates.push(seg)
     }
   }
@@ -139,6 +183,7 @@ export default function DocumentViewer({
   onClose,
   isSplitView = false,
   activeQuery,
+  activeAnswer,
 }: DocumentViewerProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -288,7 +333,7 @@ export default function DocumentViewer({
     const matches: MatchRange[] = []
 
     for (const cit of citationsOnThisPage) {
-      const phrases = getCandidatePhrases(cit, activeQuery)
+      const phrases = getCandidatePhrases(cit, activeQuery, activeAnswer)
       let matchFound = false
 
       for (const phrase of phrases) {
@@ -384,18 +429,18 @@ export default function DocumentViewer({
         {elements}
       </div>
     )
-  }, [currentPageText, docCitations, activeCitation, currentPage, docContent, activeQuery])
+  }, [currentPageText, docCitations, activeCitation, currentPage, docContent, activeQuery, activeAnswer])
 
   // Check if active citation has an exact verified match on current page
   const hasVerifiedMatchOnPage = useMemo(() => {
     if (!activeCitation || !currentPageText) return false
-    const phrases = getCandidatePhrases(activeCitation, activeQuery)
+    const phrases = getCandidatePhrases(activeCitation, activeQuery, activeAnswer)
     for (const p of phrases) {
       if (locatePhraseInText(currentPageText, p)) return true
     }
     const probe = (activeCitation.text || activeCitation.snippet || '').trim().slice(0, 60)
     return !!locatePhraseInText(currentPageText, probe)
-  }, [activeCitation, currentPageText, activeQuery])
+  }, [activeCitation, currentPageText, activeQuery, activeAnswer])
 
   return (
     <div
@@ -672,11 +717,22 @@ export default function DocumentViewer({
 
               {/* View Mode: Binary PDF iframe embed */}
               {viewMode === 'binary' && docContent?.raw_url ? (
-                <div className="rounded-2xl border border-surface-200 bg-white shadow-sm overflow-hidden dark:border-surface-800 dark:bg-surface-900 h-[650px]">
+                <div className="rounded-2xl border border-surface-200 bg-white shadow-sm overflow-hidden dark:border-surface-800 dark:bg-surface-900 h-[650px] flex flex-col">
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-surface-50 dark:bg-surface-850 border-b border-surface-200 dark:border-surface-800 text-xs text-surface-500">
+                    <span>Native PDF Document Viewer (Page {currentPage})</span>
+                    <a
+                      href={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 hover:text-brand-700 dark:text-brand-400 font-medium underline flex items-center gap-1"
+                    >
+                      Open PDF in new tab &rarr;
+                    </a>
+                  </div>
                   <iframe
                     src={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
                     title={activeDocument}
-                    className="w-full h-full border-0"
+                    className="w-full flex-1 border-0"
                   />
                 </div>
               ) : docContent?.modality === 'xlsx' && docContent.sheets ? (

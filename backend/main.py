@@ -142,7 +142,7 @@ _SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; img-src 'self' data: blob:; "
         "connect-src 'self'; style-src 'self' 'unsafe-inline'; "
-        "script-src 'self'; frame-ancestors 'self'"
+        "script-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
     ),
 }
 
@@ -1750,6 +1750,7 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
             fallback = ("[LLM unavailable — showing top retrieved source]\n\n"
                         f"{top.get('snippet', '')} [1]")
             full_text_parts = [fallback]
+            streamed_tokens = True
             yield f"event: delta\ndata: {json.dumps({'text': fallback})}\n\n"
 
         gen_ms = (time.perf_counter() - t_gen_start) * 1000

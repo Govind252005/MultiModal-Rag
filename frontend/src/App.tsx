@@ -126,6 +126,13 @@ export default function App() {
     return '';
   }, [messages]);
 
+  const lastAssistantAnswer = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return messages[i].text;
+    }
+    return '';
+  }, [messages]);
+
   // Loaders -----------------------------------------------------------------
   const loadHealth = useCallback(async () => {
     setHealthLoading(true);
@@ -717,6 +724,7 @@ export default function App() {
                     onClose={() => setViewerOpen(false)}
                     isSplitView={true}
                     activeQuery={lastUserQuery}
+                    activeAnswer={lastAssistantAnswer}
                   />
                 </div>
               ) : (

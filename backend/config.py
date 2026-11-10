@@ -146,7 +146,7 @@ RERANK_BATCH_SIZE = int(os.getenv("RERANK_BATCH_SIZE", "16"))
 # Local-inference target (AUDIT_REPORT.md / transformation brief §4-5):
 # qwen3:4b, thinking disabled, bounded context + output, streaming enabled.
 # Every one of these is now env-overridable — nothing here is hardcoded.
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen3:4b")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
 # Keep the local prompt budget large enough for retrieved evidence while
@@ -161,7 +161,7 @@ OLLAMA_STREAM = os.getenv("OLLAMA_STREAM", "1") == "1"
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
 # Per-request timeout for a local Ollama call (brief §96: every external
 # operation must have a timeout).
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "180"))
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "4"))
 # brief §13: context builder token budget. Enforced in
 # generation/prompt_templates.py::truncate_hits_to_budget — applied once,

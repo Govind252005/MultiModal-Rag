@@ -58,6 +58,7 @@ def clean_answer(text: str) -> str:
                      flags=re.IGNORECASE)
     # Normalize citation styles emitted by cloud/local models to the format
     # rendered as clickable citation chips by the frontend.
+    cleaned = re.sub(r"[【［]\s*(\d+)\s*[】］]", r"[\1]", cleaned)
     cleaned = re.sub(r"【\s*(\d+)\s*】", r"[\1]", cleaned)
 
     # Small local models sometimes ignore the no-reasoning instruction and
