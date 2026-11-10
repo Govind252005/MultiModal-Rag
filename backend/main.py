@@ -246,7 +246,8 @@ def _warmup():
             if config.RERANK_ENABLED:
                 search._get_reranker()
             from backend.generation import llm_client
-            llm_client.ensure_ollama_running()
+            if llm_client.ensure_ollama_running():
+                llm_client.warmup_llm()
             print("[startup] embedding, reranker, and local inference models warm.")
         except Exception as exc:
             print(f"[startup] warmup skipped: {exc}")
@@ -1726,10 +1727,17 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
                 model=resolved_model,
                 retrieval_ms=retrieval_ms,
                 generation_ms=0.0,
-                metrics={"streaming_enabled": False, "direct_extraction": True},
+                metrics={"streaming_enabled": False, "direct_extraction": True, "retrieval_ms": retrieval_ms},
                 used_llm=False,
                 session_id=req.session_id,
             )
+            direct_done_metrics = {
+                "used_llm": False,
+                "direct_extraction": True,
+                "retrieval_ms": round(retrieval_ms, 1),
+                "generation_ms": 0.0,
+                **(eval_metrics or {}),
+            }
             session_store.append_message(req.session_id, {"role": "user", "text": req.query})
             session_store.append_message(req.session_id, {
                 "role": "assistant",
@@ -1738,9 +1746,9 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
                 "usedLlm": False,
                 "provider": resolved_provider,
                 "model": resolved_model,
-                "metrics": eval_metrics,
+                "metrics": direct_done_metrics,
             })
-            yield f"event: done\ndata: {json.dumps({'used_llm': False, 'metrics': eval_metrics, 'answer': direct, 'citations': direct_citations})}\n\n"
+            yield f"event: done\ndata: {json.dumps({'used_llm': False, 'metrics': direct_done_metrics, 'answer': direct, 'citations': direct_citations})}\n\n"
             return
 
         # Emit initial citations upfront so the UI renders the evidence drawer immediately

@@ -179,11 +179,23 @@ function getCandidatePhrases(
 
   if (!fullText) return candidates
 
-  // 3. Segment analysis from citation text
-  const rawSegments = fullText
-    .split(/(?:\r?\n+|(?<=[.!?])\s+)/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 6)
+  // 3. Segment analysis from citation text (handling coalesced multi-chunk boundaries cleanly)
+  const chunkParts = fullText
+    .split(/(?:\r?\n){2,}|\.\.\./)
+    .map((p) => p.trim())
+    .filter(Boolean)
+
+  const rawSegments: string[] = []
+  for (const part of chunkParts) {
+    if (part.length >= 10 && part.length <= 300 && !candidates.includes(part)) {
+      candidates.push(part)
+    }
+    const lines = part
+      .split(/(?:\r?\n+|(?<=[.!?])\s+)/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 6)
+    rawSegments.push(...lines)
+  }
 
   // Prioritize segments matching user query or key entity phrases
   if (activeQuery) {
@@ -217,8 +229,12 @@ function getCandidatePhrases(
     if (!candidates.includes(seg)) candidates.push(seg)
   }
 
-  if (!candidates.includes(fullText)) {
-    candidates.push(snapToWordBoundary(fullText, 120))
+  // Add individual snapped chunk parts rather than arbitrary joins
+  for (const part of chunkParts) {
+    const snapped = snapToWordBoundary(part, 120)
+    if (snapped && !candidates.includes(snapped)) {
+      candidates.push(snapped)
+    }
   }
 
   return candidates
@@ -246,6 +262,8 @@ export default function DocumentViewer({
   const [fullWidth, setFullWidth] = useState(false)
   const [mobileTab, setMobileTab] = useState<'document' | 'annotations'>('document')
   const [showAnnotations, setShowAnnotations] = useState(true)
+  const [citationJumpKey, setCitationJumpKey] = useState<number>(0)
+  const prevCitRef = useRef<Citation | null>(null)
 
   const isSplitPane = isSplitView && !fullWidth
 
@@ -297,10 +315,14 @@ export default function DocumentViewer({
     }
   }, [sessionId, activeDocument])
 
-  // 2. Synchronize current page when user selects a different citation
+  // 2. Synchronize current page and trigger viewer jump when user selects a different citation
   useEffect(() => {
-    if (activeCitation && activeCitation.file === activeDocument) {
-      if (activeCitation.page != null && activeCitation.page > 0) {
+    if (activeCitation) {
+      if (activeCitation !== prevCitRef.current) {
+        prevCitRef.current = activeCitation
+        setCitationJumpKey((k) => k + 1)
+      }
+      if (activeCitation.file === activeDocument && activeCitation.page != null && activeCitation.page > 0) {
         setCurrentPage(activeCitation.page)
       }
     }
@@ -791,14 +813,14 @@ export default function DocumentViewer({
                     </a>
                   </div>
                   <object
-                    key={`pdf-obj-${docContent?.filename || activeDocument}-p${currentPage}`}
+                    key={`pdf-obj-${docContent?.filename || activeDocument}-jump-${citationJumpKey}`}
                     data={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
                     type="application/pdf"
                     className="w-full flex-1 border-0"
                     title={activeDocument}
                   >
                     <iframe
-                      key={`pdf-iframe-${docContent?.filename || activeDocument}-p${currentPage}`}
+                      key={`pdf-iframe-${docContent?.filename || activeDocument}-jump-${citationJumpKey}`}
                       src={`${docContent.raw_url}?token=${encodeURIComponent(getToken())}#page=${currentPage}`}
                       title={activeDocument}
                       className="w-full h-full border-0"

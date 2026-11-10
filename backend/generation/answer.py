@@ -234,6 +234,27 @@ def _direct_field_answer(query: str, hits: List[Dict[str, Any]],
             if not match:
                 continue
             value = match.group(1).strip().strip('"\'`')
+            # For submitter/author lines, check if immediate next lines contain additional co-authors/roll numbers
+            if "submitted" in pattern.pattern:
+                tail = text[match.end():]
+                stop_re = re.compile(
+                    r"\b(?:under\s+the\s+supervision|supervised\s+by|faculty|instructor|department|college|university|institute|bachelor|november|december|date|page)\b",
+                    re.IGNORECASE,
+                )
+                extra = []
+                for line in tail.splitlines()[:3]:
+                    line_str = line.strip()
+                    if not line_str:
+                        continue
+                    if stop_re.search(line_str):
+                        break
+                    # Multi-author match: uppercase name or contains roll number in parentheses
+                    if re.search(r"\([0-9]{6,}\)", line_str) or (line_str.isupper() and 2 <= len(line_str.split()) <= 4):
+                        extra.append(line_str)
+                    else:
+                        break
+                if extra:
+                    value = "\n".join([value] + extra)
             if value:
                 return f"{value} [{index}]"
     return None

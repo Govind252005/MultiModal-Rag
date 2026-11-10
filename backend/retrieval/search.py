@@ -276,6 +276,7 @@ def _coalesce_and_diversify(hits: List[Dict[str, Any]], top_k: int) -> List[Dict
             continue
 
         base_hit = dict(h)
+        base_hit["sub_chunks"] = [h.get("text", "")]
         base_words = len(base_hit.get("text", "").split())
         base_file = base_hit.get("file")
         base_page = base_hit.get("page")
@@ -300,13 +301,15 @@ def _coalesce_and_diversify(hits: List[Dict[str, Any]], top_k: int) -> List[Dict
                         is_before = False
 
                     if is_before:
-                        base_hit["text"] = other.get("text", "").rstrip() + "\n\n...\n\n" + base_hit.get("text", "").lstrip()
+                        base_hit["text"] = other.get("text", "").rstrip() + "\n\n" + base_hit.get("text", "").lstrip()
+                        base_hit["sub_chunks"].insert(0, other.get("text", ""))
                     else:
-                        base_hit["text"] = base_hit.get("text", "").rstrip() + "\n\n...\n\n" + other.get("text", "").lstrip()
+                        base_hit["text"] = base_hit.get("text", "").rstrip() + "\n\n" + other.get("text", "").lstrip()
+                        base_hit["sub_chunks"].append(other.get("text", ""))
 
                     base_words += other_words
-                    snip = base_hit["text"].strip().replace("\n", " ")
-                    base_hit["snippet"] = snip[:300].rstrip() + ("…" if len(snip) > 300 else "")
+                    # Keep snippet as the clean, unmodified snippet of the highest-scoring primary chunk
+                    # so DocumentViewer exact phrase searches match raw page text without synthetic joiners
                     absorbed_ids.add(other.get("id"))
 
         coalesced.append(base_hit)

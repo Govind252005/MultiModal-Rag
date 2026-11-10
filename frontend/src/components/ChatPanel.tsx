@@ -16,6 +16,7 @@ import {
   AudioLines,
   ShieldCheck,
   Zap,
+  Target,
 } from 'lucide-react'
 import type { ChatMessage, Citation } from '../types'
 import AnswerText from './AnswerText'
@@ -174,7 +175,27 @@ function AssistantBubble({
             )}
 
             {/* Telemetry pill */}
-            {message.metrics && (
+            {message.usedLlm === false && message.citations && message.citations.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5 pt-2 text-[11px] text-surface-500 font-mono">
+                <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 border border-amber-200 dark:border-amber-800/60 font-medium">
+                  <Zap className="h-3 w-3 text-amber-500" />
+                  <span>
+                    Instant Deterministic Extract{' '}
+                    {message.metrics?.retrieval_ms != null
+                      ? `(${Math.round(message.metrics.retrieval_ms)}ms)`
+                      : '(<5ms)'}
+                  </span>
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 border border-blue-200 dark:border-blue-800/60 font-medium">
+                  <Target className="h-3 w-3" />
+                  <span>Exact Match</span>
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 border border-emerald-200 dark:border-emerald-800/60 font-medium">
+                  <ShieldCheck className="h-3 w-3" />
+                  <span>Offline Verified</span>
+                </span>
+              </div>
+            ) : message.metrics ? (
               <div className="flex flex-wrap items-center gap-1.5 pt-2 text-[11px] text-surface-500 font-mono">
                 <span className="inline-flex items-center gap-1 rounded-md bg-surface-100 dark:bg-surface-800 px-2 py-0.5 border border-surface-200 dark:border-surface-700 font-medium">
                   <Zap className="h-3 w-3 text-amber-500" />
@@ -195,7 +216,7 @@ function AssistantBubble({
                   {message.provider === 'ollama' ? 'Offline Air-Gapped' : `${(message.provider || 'AI').toUpperCase()} Grounded`}
                 </span>
               </div>
-            )}
+            ) : null}
 
             {/* Assistant Message Action Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-surface-100 dark:border-surface-800/80 text-xs text-surface-400">

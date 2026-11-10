@@ -41,9 +41,9 @@ def ensure_ollama_running() -> bool:
     """Watchdog: verifies local Ollama daemon connectivity; auto-starts 'ollama serve'
     if the daemon is offline and the binary exists on PATH or standard local install paths."""
     global _LAST_START_ATTEMPT
-    # 1. Quick probe
+    # 1. Quick probe (non-blocking fast check)
     try:
-        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=1.5) as resp:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=0.5) as resp:
             if resp.status == 200:
                 return True
     except Exception:
@@ -83,11 +83,11 @@ def ensure_ollama_running() -> bool:
                 stderr=subprocess.DEVNULL,
                 creationflags=creationflags,
             )
-            # Poll up to 5 seconds for Ollama to become ready
-            for _ in range(10):
-                time.sleep(0.5)
+            # Poll up to 5 seconds for Ollama with fast 0.25s intervals
+            for _ in range(20):
+                time.sleep(0.25)
                 try:
-                    with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=1.0) as resp:
+                    with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=0.5) as resp:
                         if resp.status == 200:
                             logger.info("[ollama_watchdog] Ollama daemon successfully started and healthy.")
                             return True
@@ -97,6 +97,23 @@ def ensure_ollama_running() -> bool:
             logger.warning("[ollama_watchdog] Failed to launch Ollama daemon: %s", exc)
 
     return False
+
+
+def warmup_llm() -> bool:
+    """Preloads LLM model weights into RAM/VRAM so first-token latency on user queries is minimal."""
+    try:
+        client = _client()
+        client.chat(
+            model=config.LLM_MODEL,
+            messages=[{"role": "user", "content": "hi"}],
+            options={"num_predict": 1},
+            keep_alive=config.OLLAMA_KEEP_ALIVE,
+        )
+        logger.info("[startup] Preloaded LLM model %s into memory.", config.LLM_MODEL)
+        return True
+    except Exception as exc:
+        logger.debug("[startup] LLM model warmup skipped or deferred: %s", exc)
+        return False
 
 
 class LLMError(RuntimeError):

@@ -182,8 +182,30 @@ def test_post_rerank_same_page_coalescing_and_diversity():
     primary_p4 = next(h for h in coalesced if h["file"] == "contract.pdf" and h["page"] == 4)
     assert "section 1" in primary_p4["text"]
     assert "section 2" in primary_p4["text"]
+    assert primary_p4["snippet"] == "This is section 1"
+    assert "sub_chunks" in primary_p4
+    assert len(primary_p4["sub_chunks"]) == 3
     # Page 19 must NOT be starved out by page 4 chunks
     assert any(h["page"] == 19 for h in coalesced)
+
+
+def test_multi_author_submitter_extraction():
+    """Verify that multiple student authors are captured without capturing supervisor."""
+    sample = (
+        "Project Report\n"
+        "Submitted by\n"
+        "GOVIND SHREELOCHAN (00720802723)\n"
+        "MOHIT KUMAR (00720802724)\n"
+        "Under the supervision of\n"
+        "DR. ANITA SHARMA\n"
+    )
+    hits = [{"text": sample, "snippet": sample[:80], "file": "team.pdf"}]
+    citations = [{"index": 1, "file": "team.pdf", "score": 0.95}]
+    res = answer._direct_field_answer("who submitted this document?", hits, citations)
+    assert res is not None
+    assert "GOVIND SHREELOCHAN (00720802723)" in res
+    assert "MOHIT KUMAR (00720802724)" in res
+    assert "ANITA SHARMA" not in res
 
 
 def test_table_header_preservation_across_chunks():
