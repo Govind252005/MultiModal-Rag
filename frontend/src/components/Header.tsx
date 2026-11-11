@@ -77,7 +77,7 @@ export default function Header({
                 {activeProvider?.mode === "cloud"
                   ? `${activeProvider.provider.toUpperCase()} — ${activeProvider.model}`
                   : healthData.llm_available
-                  ? `Ollama — ${healthData.llm_model}`
+                  ? `Ollama — ${activeProvider?.model || healthData.llm_model}`
                   : "LLM offline"}
               </span>
             </span>
