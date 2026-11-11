@@ -181,6 +181,12 @@ def clean_answer(text: str) -> str:
     )
     cleaned = filler_re.sub("", cleaned).strip()
 
+    # If the output contains a Markdown table, preserve its structure and attach citation if needed
+    if re.search(r"\|.*\|", cleaned) and re.search(r"\|[-:\s|]+\|", cleaned):
+        if not re.search(r'\[\d+\]', cleaned):
+            cleaned = f"{cleaned.rstrip()} [1]"
+        return cleaned.strip()
+
     # Small local models sometimes ignore the no-reasoning instruction and
     # write a visible analysis preamble in `content` even with think=False.
     markers = list(_FINAL_MARKER_RE.finditer(cleaned))
@@ -235,6 +241,20 @@ def _build_messages(system: str, user: str,
     return messages
 
 
+def _clean_messages_for_model(messages: List[Dict[str, str]], target_model: str) -> List[Dict[str, str]]:
+    is_qwen3 = "qwen3" in target_model.lower()
+    cleaned = []
+    for m in messages:
+        c = m.get("content", "")
+        if not is_qwen3:
+            c = c.replace("/no_think", "").strip()
+        else:
+            if m.get("role") == "system" and "/no_think" not in c:
+                c = f"{c} /no_think"
+        cleaned.append({**m, "content": c})
+    return cleaned
+
+
 def _chat_options() -> dict:
     return {
         "temperature": config.LLM_TEMPERATURE,
@@ -244,16 +264,17 @@ def _chat_options() -> dict:
 
 
 def _chat_kwargs(messages: List[Dict[str, str]], model: Optional[str] = None) -> dict:
+    target_model = model or config.LLM_MODEL
+    cleaned_msgs = _clean_messages_for_model(messages, target_model)
     kwargs = dict(
-        model=model or config.LLM_MODEL,
-        messages=messages,
+        model=target_model,
+        messages=cleaned_msgs,
         keep_alive=config.OLLAMA_KEEP_ALIVE,
         options=_chat_options(),
     )
-    # Keep reasoning disabled at the API boundary.  Do not rely on the
-    # model's default or concatenate Ollama's separate `thinking` field into
-    # the user-visible `content` field.
-    kwargs["think"] = False
+    # Only inject think=False for models that support it (qwen3)
+    if "qwen3" in target_model.lower():
+        kwargs["think"] = False
     return kwargs
 
 

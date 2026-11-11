@@ -108,6 +108,20 @@ function snapToWordBoundary(s: string, maxLen: number): string {
   return (lastSpace > 15 ? cut.slice(0, lastSpace) : cut).trim()
 }
 
+const COMMON_STOPWORDS = new Set([
+  'the', 'is', 'at', 'of', 'in', 'and', 'to', 'was', 'were', 'for', 'on', 'with', 'as',
+  'by', 'an', 'be', 'this', 'that', 'which', 'from', 'or', 'are', 'it', 'its', 'formed',
+  'under', 'document', 'based', 'according', 'provided', 'context', 'answer', 'question',
+  'aim', 'experiment', 'section', 'what', 'who', 'how', 'why', 'when', 'where'
+])
+
+function extractSignificantTokens(text: string): string[] {
+  return (text || '')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length >= 2 && !COMMON_STOPWORDS.has(w))
+}
+
 function getCandidatePhrases(
   cit: Citation,
   activeQuery?: string,
@@ -118,11 +132,12 @@ function getCandidatePhrases(
   const candidatePool = [pageText || '', fullText].filter(Boolean)
   const candidates: string[] = []
 
-  // 0. If activeAnswer is present, prioritize the exact answer text or key answer phrases
+  // 1. Universal Answer-Overlap & Exact Span Alignment (Zero Hardcoded Question Regexes)
   if (activeAnswer) {
     const cleanAnswer = activeAnswer
-      .replace(/(?:\[|【|［)\s*\d+\s*(?:\]|】|］)/g, '')
+      .replace(/(?:\[|【|［|\u3010|\uFF3B)\s*\d+\s*(?:\]|】|］|\u3011|\uFF3D)/g, '')
       .replace(/^\[LLM unavailable[^\]]*\]/i, '')
+      .replace(/^(?:based\s+on\s+the\s+context|according\s+to\s+the\s+document)[,\s]*/i, '')
       .trim()
 
     if (cleanAnswer && cleanAnswer.length >= 3) {
@@ -134,64 +149,66 @@ function getCandidatePhrases(
       for (const line of ansLines) {
         if (!candidates.includes(line)) candidates.push(line)
       }
-    }
-  }
 
-  // 1. If user asked about supervisor/supervision, prioritize exact supervisor block
-  if (activeQuery && /\b(supervision|supervisor|supervised|guided|mentor)\b/i.test(activeQuery)) {
-    for (const src of candidatePool) {
-      const supMatch = src.match(/(?:under\s+the\s+supervision\s+of|supervised\s+by|faculty\s+supervisor|faculty\s+guide|supervisor|guided\s+by|mentor)[:\s]*\n*([^\r\n]+)/i)
-      if (supMatch && supMatch[1]) {
-        let name = supMatch[1].trim()
-        name = name.replace(/\s*[,–-]?\s*\b(?:Faculty|Subject\s+Instructor|Instructor|Assistant\s+Professor|Associate\s+Professor|Professor|HOD|Department\s+of[^\r\n]*)\b.*$/i, '').trim()
-        if (name.length >= 3 && !candidates.includes(name)) {
-          candidates.push(name)
+      // Universal lexical & n-gram overlap between cleanAnswer (+ query) and sentences/lines
+      const ansTokens = extractSignificantTokens(cleanAnswer)
+      const qTokens = extractSignificantTokens(activeQuery || '')
+      const poolSentences: string[] = []
+      for (const src of candidatePool) {
+        const sentences = src
+          .split(/(?:\r?\n+|(?<=[.!?।॥])\s+)/)
+          .map((s) => s.trim())
+          .filter((s) => s.length >= 4)
+        for (const s of sentences) {
+          if (!poolSentences.includes(s)) poolSentences.push(s)
         }
-        const fullBlock = supMatch[0].trim()
-        if (!candidates.includes(fullBlock)) {
-          candidates.push(fullBlock)
+      }
+
+      const scoredSentences = poolSentences.map((sentence) => {
+        const sLower = sentence.toLowerCase()
+        let score = 0
+        for (const tok of ansTokens) {
+          if (sLower.includes(tok)) score += 3
+        }
+        for (const tok of qTokens) {
+          if (sLower.includes(tok)) score += 1
+        }
+        if (cleanAnswer.length <= 60 && sLower.includes(cleanAnswer.toLowerCase())) {
+          score += 15
+        }
+        for (const tok of ansTokens) {
+          if (/^\d+$/.test(tok) && sLower.includes(tok)) score += 5
+        }
+        return { sentence, score }
+      })
+
+      scoredSentences.sort((a, b) => b.score - a.score)
+      for (const item of scoredSentences) {
+        if (item.score >= 3 && !candidates.includes(item.sentence)) {
+          candidates.push(item.sentence)
         }
       }
     }
   }
 
-  // 2. If user asked "who submitted" or author query, prioritize exact submitter block from page
-  if (activeQuery && /\b(who|author|submit|submitted|prepared|student)\b/i.test(activeQuery)) {
-    for (const src of candidatePool) {
-      const authorMatch = src.match(/(?:submitted\s+by|author|prepared\s+by)[:\s]*\n*([^\r\n]+)/i)
-      if (authorMatch && authorMatch[1]) {
-        const name = authorMatch[1].trim()
-        if (name.length >= 3 && !candidates.includes(name)) {
-          candidates.push(name)
-        }
-        const fullBlock = authorMatch[0].trim()
-        if (!candidates.includes(fullBlock)) {
-          candidates.push(fullBlock)
-        }
-      }
-    }
-  }
-
-  // 3. Multi-line entity patterns (e.g. "Submitted by\nGOVIND SHREELOCHAN", "Aim\nTo specify...")
+  // 2. Structured Multi-line Entity patterns (fallback)
   for (const src of candidatePool) {
+    const supMatch = src.match(/(?:under\s+the\s+supervision\s+of|supervised\s+by|supervisor|guided\s+by|mentor)[:\s]*\n*([^\r\n]+)/i)
+    if (supMatch && supMatch[1]) {
+      const name = supMatch[1].trim()
+      if (name.length >= 3 && !candidates.includes(name)) candidates.push(name)
+    }
+
     const submittedMulti = src.match(/submitted\s+by[:\s]*\n*([^\r\n]+)/i)
     if (submittedMulti && submittedMulti[1]) {
       const authorName = submittedMulti[1].trim()
-      if (authorName.length >= 3 && !candidates.includes(authorName)) {
-        candidates.push(authorName)
-      }
-      const fullSubmittedBlock = submittedMulti[0].trim()
-      if (!candidates.includes(fullSubmittedBlock)) {
-        candidates.push(fullSubmittedBlock)
-      }
+      if (authorName.length >= 3 && !candidates.includes(authorName)) candidates.push(authorName)
     }
 
     const aimMulti = src.match(/\baim[:\s]*\n*([^\r\n]+)/i)
     if (aimMulti && aimMulti[1]) {
       const aimText = aimMulti[1].trim()
-      if (aimText.length >= 6 && !candidates.includes(aimText)) {
-        candidates.push(aimText)
-      }
+      if (aimText.length >= 6 && !candidates.includes(aimText)) candidates.push(aimText)
     }
   }
 

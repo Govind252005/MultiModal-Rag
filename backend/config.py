@@ -113,8 +113,8 @@ WHISPER_INITIAL_PROMPT = os.getenv("WHISPER_INITIAL_PROMPT", "")
 AUDIO_CHUNK_SECONDS = int(os.getenv("AUDIO_CHUNK_SECONDS", "12"))
 
 # ------------------------------------------------------------------ Chunking
-CHUNK_SIZE_WORDS = 220
-CHUNK_OVERLAP_WORDS = 40
+CHUNK_SIZE_WORDS = int(os.getenv("CHUNK_SIZE_WORDS", "130"))
+CHUNK_OVERLAP_WORDS = int(os.getenv("CHUNK_OVERLAP_WORDS", "30"))
 
 # brief §45/§46: every chunk records what produced it, so (a) re-ingesting
 # unchanged content can be skipped entirely (idempotent ingestion) and
@@ -122,7 +122,7 @@ CHUNK_OVERLAP_WORDS = 40
 # instead of silently mixed with new ones. Bump INGESTION_PIPELINE_VERSION
 # whenever parsing/chunking logic changes materially enough that old
 # chunks should be considered outdated even though the source file didn't.
-INGESTION_PIPELINE_VERSION = os.getenv("INGESTION_PIPELINE_VERSION", "2")
+INGESTION_PIPELINE_VERSION = os.getenv("INGESTION_PIPELINE_VERSION", "3")
 # ------------------------------------------------------------------ Chunking strategy
 CHUNKING_STRATEGY = os.getenv("CHUNKING_STRATEGY", "semantic")  # semantic | word
 SEMANTIC_MIN_WORDS = int(os.getenv("SEMANTIC_MIN_WORDS", "80"))

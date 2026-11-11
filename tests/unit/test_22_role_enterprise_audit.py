@@ -337,5 +337,39 @@ def test_clean_answer_filler_preamble_and_unclosed_think():
     assert llm_client.clean_answer(raw_filler2) == "TANISHA MADAN [1]"
 
 
+def test_experiment_section_breadcrumb_inheritance_and_table_retrieval():
+    """Verify that multi-page documents propagate section headings (e.g. EXPERIMENT 2)
+    to subsequent pages and table chunks, making them retrievable for table queries."""
+    from backend.ingestion import pdf_docx_parser
+    from backend.retrieval import search
+
+    p1_text = "EXPERIMENT 2: Equivalence Partitioning\nAim: Test case design for banking application\nTheory: Boundary values"
+    detected_heading = pdf_docx_parser._detect_heading(p1_text.splitlines()[0])
+    assert detected_heading is not None
+    assert "EXPERIMENT 2" in detected_heading
+
+    table_chunk = (
+        f"[Table Context: {detected_heading} | Test Cases Table | Page 2]\n"
+        "| Test Case ID | Input | Expected Output | Status |\n"
+        "| --- | --- | --- | --- |\n"
+        "| TC_01 | Balance=500, Withdraw=100 | Success, New Balance=400 | Pass |\n"
+        "| TC_02 | Balance=100, Withdraw=200 | Insufficient Funds Error | Pass |\n"
+    )
+
+    query = "i want the test cases table of experiment 2"
+    assert "EXPERIMENT 2" in table_chunk
+    assert "Test Case ID" in table_chunk
+
+    hits = [
+        {"id": "c1", "text": p1_text, "score": 0.8, "file": "lab.pdf", "page": 1, "source_type": "text"},
+        {"id": "c2", "text": table_chunk, "score": 0.75, "file": "lab.pdf", "page": 2, "source_type": "table"},
+    ]
+    reranked = search._rerank(query, hits, top_n=2)
+    assert len(reranked) == 2
+    assert reranked[0]["source_type"] == "table"
+    assert "TC_01" in reranked[0]["text"]
+
+
+
 
 

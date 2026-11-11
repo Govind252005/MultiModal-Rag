@@ -39,6 +39,11 @@ def _get_text_model():
                 from sentence_transformers import SentenceTransformer
                 print(f"[embeddings] loading text model {config.TEXT_EMBED_MODEL} on {config.DEVICE} ...")
                 _text_model = SentenceTransformer(config.TEXT_EMBED_MODEL, device=config.DEVICE)
+                try:
+                    if hasattr(_text_model, "max_seq_length") and _text_model.max_seq_length < 256:
+                        _text_model.max_seq_length = 256
+                except Exception:
+                    pass
     return _text_model
 
 

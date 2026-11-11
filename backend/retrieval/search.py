@@ -228,11 +228,21 @@ def _rerank(query: str, hits: List[Dict[str, Any]], top_n: int) -> List[Dict[str
                 batch_size=getattr(config, "RERANK_BATCH_SIZE", 16)
             )
 
+        is_table_query = bool(re.search(r"\b(table|tabular|test\s*cases?|rows?|columns?|chart|matrix|schedule|list)\b", query, re.IGNORECASE))
         reranked = []
         for i, h in enumerate(pool):
+            score = float(scores[i])
+            is_table_chunk = (
+                h.get("source_type") == "table"
+                or "|" in (h.get("text") or "")
+                or "test case" in (h.get("text") or "").lower()
+            )
+            if is_table_query and is_table_chunk:
+                score += 3.5
+
             reranked.append({
                 **h,
-                "rerank_score": float(scores[i])
+                "rerank_score": score
             })
 
         reranked.sort(key=lambda x: x["rerank_score"], reverse=True)
@@ -240,7 +250,12 @@ def _rerank(query: str, hits: List[Dict[str, Any]], top_n: int) -> List[Dict[str
         min_score = getattr(config, "RERANK_MIN_SCORE", -5.5)
         filtered = []
         for idx, item in enumerate(reranked):
-            if idx < 3 or item["rerank_score"] >= min_score:
+            is_table_chunk = (
+                item.get("source_type") == "table"
+                or "|" in (item.get("text") or "")
+                or "test case" in (item.get("text") or "").lower()
+            )
+            if idx < 3 or item["rerank_score"] >= min_score or (is_table_query and is_table_chunk):
                 filtered.append(item)
 
         if len(filtered) < top_n and len(hits) > len(pool):
@@ -448,6 +463,43 @@ def text_query(
             if c.get("section") == requested_section:
                 c["score"] = c["score"] * 1.35
         candidates.sort(key=lambda x: x["score"], reverse=True)
+
+    # 5.1 Neighbor table & sibling expansion for multi-page sections (e.g. Experiment 2 tables on next page)
+    is_table_query = bool(re.search(r"\b(table|tabular|test\s*cases?|rows?|columns?|chart|matrix|schedule|values?|experiment)\b", query, re.IGNORECASE))
+    if candidates and (is_table_query or "experiment" in query.lower()):
+        top_doc = candidates[0]
+        top_file = top_doc.get("file")
+        top_page = top_doc.get("page")
+        if top_file and top_page is not None:
+            pages_to_check = [top_page, top_page + 1]
+            if top_page > 1:
+                pages_to_check.append(top_page - 1)
+            try:
+                neighbors = vector_store.get_neighbor_chunks(
+                    file=top_file,
+                    pages=pages_to_check,
+                    session_id=session_id,
+                    user_id=user_id,
+                    org_id=org_id,
+                )
+                for neighbor in neighbors:
+                    meta = neighbor.get("metadata", {})
+                    doc_text = neighbor.get("document", "")
+                    is_neighbor_table = meta.get("source_type") == "table" or "|" in doc_text or "test case" in doc_text.lower()
+                    if is_neighbor_table:
+                        norm_n = _normalize({
+                            "id": neighbor.get("id"),
+                            "document": doc_text,
+                            "text": doc_text,
+                            "metadata": meta,
+                            "score": 0.85,
+                        }, "table_neighbor")
+                        n_key = _citation_key(norm_n)
+                        if n_key not in deduped:
+                            deduped[n_key] = norm_n
+                            candidates.append(norm_n)
+            except Exception as exc:
+                logger.debug("[search] neighbor expansion notice: %s", exc)
 
     # 6) Cross-encoder rerank with diverse pool and coalesce same-page adjacent chunks
     rerank_pool_size = max(top_k * 2, 10)

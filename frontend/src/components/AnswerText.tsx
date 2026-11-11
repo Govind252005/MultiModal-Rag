@@ -96,8 +96,8 @@ function MarkdownSegment({
   lines.forEach((line, i) => {
     const trimmed = line.trim()
 
-    // Markdown Table detection: starts and ends with '|' or contains multiple '|'
-    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+    // Markdown Table detection: lines with multiple pipe delimiters
+    if ((trimmed.startsWith('|') && trimmed.endsWith('|')) || (trimmed.includes('|') && trimmed.split('|').length >= 3)) {
       tableBuffer.push(trimmed)
       return
     } else {
@@ -188,7 +188,11 @@ function MarkdownTable({
       .map((c) => c.trim())
 
   const headers = parseRow(lines[0])
-  const rows = lines.slice(2).map(parseRow)
+  const sepIdx = lines.findIndex((l, idx) => idx > 0 && /^\|?[-:\s|]+\|?$/.test(l.trim()))
+  const dataLines = sepIdx > 0 ? lines.slice(sepIdx + 1) : lines.slice(1)
+  const rows = dataLines
+    .filter((l) => l.trim().length > 0 && !/^\|?[-:\s|]+\|?$/.test(l.trim()))
+    .map(parseRow)
 
   return (
     <div className="my-3 overflow-x-auto rounded-xl border border-surface-200 dark:border-surface-800 shadow-subtle">

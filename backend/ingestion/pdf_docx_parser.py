@@ -36,6 +36,38 @@ _SECTION_NAMES = (
     "acknowledgments", "appendix",
 )
 
+_EXPERIMENT_HEADING_RE = re.compile(
+    r"^(?:EXPERIMENT|EXP\.?|PRACTICAL|LAB|ASSIGNMENT)\s*(?:NO\.?\s*|NUMBER\s*)?[-:#]?\s*([0-9a-zA-Z]+[^\r\n]*)",
+    re.IGNORECASE,
+)
+_STRUCTURAL_HEADING_RE = re.compile(
+    r"^(?:UNIT|CHAPTER|SECTION|MODULE|PART)\s*(?:NO\.?\s*|NUMBER\s*)?[-:#]?\s*([0-9a-zA-Z]+[^\r\n]*)",
+    re.IGNORECASE,
+)
+_NUMBERED_HEADING_RE = re.compile(r"^(?:\d+\.|\d+\.\d+)\s+([A-Z][^\r\n]{2,80})$")
+_KEY_PHRASE_HEADING_RE = re.compile(
+    r"^(?:TEST\s*CASES?|SYSTEM\s*SPECIFICATION|SPECIFICATIONS|THEORY\s*AND\s*SPECIFICATIONS|AIM|OBJECTIVE|PROCEDURE|RESULTS|CONCLUSION)\b[^\r\n]*",
+    re.IGNORECASE,
+)
+
+
+def _detect_heading(line: str) -> Optional[str]:
+    clean = (line or "").strip()
+    if not clean or len(clean) < 3:
+        return None
+    md_match = re.match(r"^#{1,6}\s+(.+)$", clean)
+    if md_match:
+        return md_match.group(1).strip()
+    if _EXPERIMENT_HEADING_RE.match(clean):
+        return clean
+    if _STRUCTURAL_HEADING_RE.match(clean):
+        return clean
+    if _NUMBERED_HEADING_RE.match(clean):
+        return clean
+    if _KEY_PHRASE_HEADING_RE.match(clean) and len(clean.split()) <= 8:
+        return clean
+    return _section_heading(clean)
+
 
 def _section_heading(line: str) -> Optional[str]:
     """Return a normalized section name for a heading-like line."""
@@ -148,7 +180,7 @@ def parse_pdf(path: str, image_dir: Optional[Path] = None,
               f"{page_limit} pages will be ingested.")
     seen_xrefs: set = set()
     extracted = 0
-    current_section: Optional[str] = None
+    active_heading: Optional[str] = None
     try:
         for page_index in range(page_limit):
             page = doc[page_index]
@@ -165,14 +197,23 @@ def parse_pdf(path: str, image_dir: Optional[Path] = None,
                 except Exception:
                     pass
 
-            segments, current_section = _section_segments(text, current_section)
+            # Scan lines on this page for structural headings (e.g. "Experiment 2")
+            for line in text.splitlines()[:15]:
+                detected = _detect_heading(line)
+                if detected:
+                    active_heading = detected
+                    break
+
+            segments, current_section = _section_segments(text, active_heading)
             for section, segment in segments:
+                eff_sec = section or active_heading
                 for chunk in chunk_text(segment):
-                    records.append(_record(chunk, file, page_no,
-                                           section=section))
+                    prefix = f"[Section Context: {eff_sec} | Page {page_no}]\n" if eff_sec else ""
+                    records.append(_record(f"{prefix}{chunk}", file, page_no,
+                                           section=eff_sec))
 
             if extract_tables:  # brief §44: skippable outside MAX_QUALITY
-                records.extend(_table_records(page, page_no, file, section=current_section))
+                records.extend(_table_records(page, page_no, file, section=active_heading))
 
             if not extract_embedded_images:  # brief §44: skippable outside MAX_QUALITY
                 continue
@@ -209,11 +250,32 @@ def _table_records(page, page_no: int, file: str, section: Optional[str] = None)
     """Extract tables from a PDF page via PyMuPDF find_tables() with header preservation across chunks."""
     records: List[Dict[str, Any]] = []
     try:
+        import fitz
         tabs = page.find_tables()
         for tbl in (tabs.tables if hasattr(tabs, "tables") else []):
             rows = tbl.extract()
             if not rows or len(rows) == 0:
                 continue
+
+            # Capture preceding caption lines above table if available
+            table_caption = ""
+            try:
+                if hasattr(tbl, "bbox") and tbl.bbox:
+                    y0 = tbl.bbox[1]
+                    rect_above = fitz.Rect(0, max(0, y0 - 70), page.rect.width, y0)
+                    above_txt = page.get_text("text", clip=rect_above).strip()
+                    if above_txt:
+                        table_caption = " ".join(above_txt.splitlines()[-2:]).strip()
+            except Exception:
+                pass
+
+            context_tag = ""
+            if section and table_caption:
+                context_tag = f"[Table Context: {section} | {table_caption} | Page {page_no}]\n"
+            elif section:
+                context_tag = f"[Table Context: {section} | Page {page_no}]\n"
+            elif table_caption:
+                context_tag = f"[Table Context: {table_caption} | Page {page_no}]\n"
 
             # Clean rows
             cleaned_rows = [
@@ -227,29 +289,29 @@ def _table_records(page, page_no: int, file: str, section: Optional[str] = None)
 
             data_rows = cleaned_rows[1:]
             if not data_rows:
-                records.append(_record(f"{header_line}\n{sep_line}", file, page_no, source_type="table", section=section))
+                records.append(_record(f"{context_tag}{header_line}\n{sep_line}", file, page_no, source_type="table", section=section))
                 continue
 
             # Format data rows into chunks while always prepending header row + delimiter
             current_data_lines: List[str] = []
-            current_words = len(header_line.split()) + len(sep_line.split())
-            max_words = getattr(config, "CHUNK_SIZE_WORDS", 220)
+            current_words = len(context_tag.split()) + len(header_line.split()) + len(sep_line.split())
+            max_words = getattr(config, "CHUNK_SIZE_WORDS", 130)
 
             for d_row in data_rows:
                 row_line = "| " + " | ".join(d_row) + " |"
                 row_words = len(row_line.split())
 
                 if current_data_lines and (current_words + row_words > max_words):
-                    chunk_text = header_line + "\n" + sep_line + "\n" + "\n".join(current_data_lines)
+                    chunk_text = context_tag + header_line + "\n" + sep_line + "\n" + "\n".join(current_data_lines)
                     records.append(_record(chunk_text, file, page_no, source_type="table", section=section))
                     current_data_lines = [row_line]
-                    current_words = len(header_line.split()) + len(sep_line.split()) + row_words
+                    current_words = len(context_tag.split()) + len(header_line.split()) + len(sep_line.split()) + row_words
                 else:
                     current_data_lines.append(row_line)
                     current_words += row_words
 
             if current_data_lines:
-                chunk_text = header_line + "\n" + sep_line + "\n" + "\n".join(current_data_lines)
+                chunk_text = context_tag + header_line + "\n" + sep_line + "\n" + "\n".join(current_data_lines)
                 records.append(_record(chunk_text, file, page_no, source_type="table", section=section))
 
     except Exception as exc:

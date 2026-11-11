@@ -1508,6 +1508,22 @@ def get_embedding_info(user: dict = Depends(get_user)):
     }
 
 
+def _auto_refresh_session_files(session_id: str, user_id: str, org_id: str) -> None:
+    """If INGESTION_PIPELINE_VERSION was bumped, automatically re-ingest existing session files."""
+    try:
+        sdir = _session_dir(session_id)
+        if not sdir.exists():
+            return
+        for p in sdir.iterdir():
+            if p.is_file() and not p.name.startswith(".") and "__p" not in p.name:
+                fp = vector_store.get_file_fingerprint(p.name, session_id=session_id, user_id=user_id, org_id=org_id)
+                if fp and fp.get("pipeline_version") != config.INGESTION_PIPELINE_VERSION:
+                    logger.info("Auto-upgrading session file %s to pipeline version %s", p.name, config.INGESTION_PIPELINE_VERSION)
+                    ingest.ingest_file(str(p), session_id=session_id, user_id=user_id, org_id=org_id)
+    except Exception as exc:
+        logger.debug("Session auto-refresh notice: %s", exc)
+
+
 # ------------------------------------------------------------------ querying
 @app.post("/api/query")
 def query(req: QueryRequest, user: dict = Depends(get_user)):
@@ -1517,6 +1533,8 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
     session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
+    _auto_refresh_session_files(req.session_id, user["id"], org_id)
+    _auto_refresh_session_files(req.session_id, user["id"], org_id)
 
     # Resolve Phase 3 feature flags (request overrides server config default).
     use_rewrite = _flag(req.rewrite, config.QUERY_REWRITE_ENABLED)
@@ -1660,6 +1678,7 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
     session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
+    _auto_refresh_session_files(req.session_id, user["id"], org_id)
 
     resolved_provider = _resolve_provider(req.provider, user["id"])
     resolved_model = _resolve_model(req.model, resolved_provider, user["id"])
@@ -1834,6 +1853,7 @@ def extract(req: QueryRequest, user: dict = Depends(get_user)):
     session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
+    _auto_refresh_session_files(req.session_id, user["id"], org_id)
     resolved_provider = _resolve_provider(req.provider, user["id"])
     history = _history_for(req.session_id)
     payload = {
@@ -1879,6 +1899,7 @@ def summarize(req: QueryRequest, user: dict = Depends(get_user)):
     session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
+    _auto_refresh_session_files(req.session_id, user["id"], org_id)
 
     resolved_provider = _resolve_provider(req.provider, user["id"])
     history = _history_for(req.session_id)

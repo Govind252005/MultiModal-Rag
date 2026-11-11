@@ -343,3 +343,33 @@ def has_images(session_id: Optional[str] = None,
         return bool(got.get("ids"))
     except Exception:
         return True
+
+
+def get_neighbor_chunks(
+    file: str,
+    pages: List[int],
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch all chunks on specific pages of a file (e.g. adjacent table or text chunks)."""
+    if not file or not pages:
+        return []
+    try:
+        where_parts: List[Dict[str, Any]] = [{"file": {"$eq": file}}]
+        if len(pages) == 1:
+            where_parts.append({"page": {"$eq": pages[0]}})
+        else:
+            where_parts.append({"page": {"$in": pages}})
+        if session_id:
+            where_parts.append({"session_id": {"$eq": session_id}})
+        if user_id:
+            where_parts.append({"user_id": {"$eq": user_id}})
+        if org_id:
+            where_parts.append({"org_id": {"$eq": org_id}})
+
+        where = {"$and": where_parts} if len(where_parts) > 1 else where_parts[0]
+        return get_text_corpus(where=where)
+    except Exception as exc:
+        logger.debug("[vector_store] get_neighbor_chunks notice: %s", exc)
+        return []
