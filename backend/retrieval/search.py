@@ -99,7 +99,9 @@ def _citation_key(h: Dict[str, Any]) -> str:
     if h.get("modality") == "audio":
         return f"{h.get('file')}|{h.get('timestamp') or h.get('start')}"
     if h.get("modality") == "document":
-        return f"{h.get('file')}|p{h.get('page')}|{h.get('source_type', 'text')}|c{h.get('chunk', 0)}"
+        chunk_val = h.get("chunk")
+        chunk_id = chunk_val if (chunk_val is not None and str(chunk_val).strip() != "") else (h.get("id") or "0")
+        return f"{h.get('file')}|p{h.get('page')}|{h.get('source_type', 'text')}|c{chunk_id}"
     # image: OCR chunks stay separate; caption + visual collapse to one per image.
     if h.get("source_type") == "ocr":
         return f"{h.get('file')}|ocr|{h.get('chunk')}"
@@ -211,7 +213,7 @@ def _rerank(query: str, hits: List[Dict[str, Any]], top_n: int) -> List[Dict[str
         if any(s != "Latin" for s in sample_doc_scripts):
             return hits[:top_n]
 
-    rerank_window = getattr(config, "RERANK_WINDOW", 20)
+    rerank_window = max(getattr(config, "RERANK_WINDOW", 20), 30)
     pool = hits[:rerank_window]
     try:
         import torch
@@ -268,11 +270,73 @@ def _rerank(query: str, hits: List[Dict[str, Any]], top_n: int) -> List[Dict[str
         return hits[:top_n]
 
 
+def _merge_table_texts(t1: str, t2: str) -> str:
+    """Consolidate two markdown tables into a single coherent table without duplicate headers."""
+    if not (re.search(r"\|.*\|", t1) and re.search(r"\|.*\|", t2)):
+        return t1.rstrip() + "\n\n" + t2.lstrip()
+
+    lines1 = [l.strip() for l in t1.splitlines() if l.strip().startswith("|")]
+    lines2 = [l.strip() for l in t2.splitlines() if l.strip().startswith("|")]
+
+    def split_table(lines):
+        header = []
+        data = []
+        for l in lines:
+            if re.match(r"^\|[-:\s|]+\|$", l):
+                header.append(l)
+            elif not header:
+                header.append(l)
+            else:
+                data.append(l)
+        return header, data
+
+    h1, d1 = split_table(lines1)
+    h2, d2 = split_table(lines2)
+
+    if not d1 or not d2:
+        return t1.rstrip() + "\n\n" + t2.lstrip()
+
+    # Only merge if both tables share the same column structure
+    cols1 = len([c for c in h1[0].split("|") if c.strip()]) if h1 else 0
+    cols2 = len([c for c in h2[0].split("|") if c.strip()]) if h2 else 0
+    if cols1 != cols2:
+        return t1.rstrip() + "\n\n" + t2.lstrip()
+
+    def first_cell(r):
+        parts = [p.strip() for p in r.split("|") if p.strip()]
+        return parts[0] if parts else ""
+
+    c1, c2 = first_cell(d1[0]), first_cell(d2[0])
+    if c2 and c1 and c2 < c1:
+        combined = d2 + [r for r in d1 if r not in d2]
+        header = h2 or h1
+    else:
+        combined = d1 + [r for r in d2 if r not in d1]
+        header = h1 or h2
+
+    # Check if all rows have clean alphanumeric IDs in the first column (e.g. IN01, IN02)
+    if all(re.match(r"^[A-Za-z0-9_\-]+$", first_cell(r)) for r in combined if r.strip()):
+        combined.sort(key=first_cell)
+
+    ctx_prefix = ""
+    for l in t1.splitlines():
+        if l.strip().startswith("[") and l.strip().endswith("]"):
+            ctx_prefix = l.strip() + "\n"
+            break
+    if not ctx_prefix:
+        for l in t2.splitlines():
+            if l.strip().startswith("[") and l.strip().endswith("]"):
+                ctx_prefix = l.strip() + "\n"
+                break
+
+    return ctx_prefix + "\n".join(header) + "\n" + "\n".join(combined)
+
+
 def _coalesce_and_diversify(hits: List[Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
     """Phase 4.3 enterprise refinement:
     1. For same-page document chunks (same file, page, modality=document), coalesce
-       adjacent chunks up to ~380 words so the generator and citation drawer receive
-       cohesive page context rather than isolated fragments.
+       adjacent chunks up to ~380 words (or 900 words for structured tables) so the generator
+       and citation drawer receive cohesive page context rather than isolated fragments.
     2. Enforce a diversity cap of at most 2 chunks per (file, page) when alternative
        files or pages are present in the candidate pool.
     """
@@ -296,6 +360,8 @@ def _coalesce_and_diversify(hits: List[Dict[str, Any]], top_k: int) -> List[Dict
         base_file = base_hit.get("file")
         base_page = base_hit.get("page")
         base_chunk = base_hit.get("chunk", 0)
+        is_table = base_hit.get("source_type") == "table" or "|" in base_hit.get("text", "")
+        max_words = 900 if is_table else 380
 
         # Look ahead for adjacent or same-page chunks from the same file
         for j in range(i + 1, len(hits)):
@@ -307,20 +373,28 @@ def _coalesce_and_diversify(hits: List[Dict[str, Any]], top_k: int) -> List[Dict
                 and other.get("file") == base_file
                 and other.get("page") == base_page
             ):
-                other_words = len(other.get("text", "").split())
-                if base_words + other_words <= 380:
-                    other_chunk = other.get("chunk", 0)
-                    try:
-                        is_before = int(other_chunk) < int(base_chunk)
-                    except (ValueError, TypeError):
-                        is_before = False
+                other_is_table = other.get("source_type") == "table" or "|" in other.get("text", "")
+                if is_table != other_is_table:
+                    continue
 
-                    if is_before:
-                        base_hit["text"] = other.get("text", "").rstrip() + "\n\n" + base_hit.get("text", "").lstrip()
-                        base_hit["sub_chunks"].insert(0, other.get("text", ""))
-                    else:
-                        base_hit["text"] = base_hit.get("text", "").rstrip() + "\n\n" + other.get("text", "").lstrip()
+                other_words = len(other.get("text", "").split())
+                if base_words + other_words <= max_words:
+                    if is_table:
+                        base_hit["text"] = _merge_table_texts(base_hit.get("text", ""), other.get("text", ""))
                         base_hit["sub_chunks"].append(other.get("text", ""))
+                    else:
+                        other_chunk = other.get("chunk", 0)
+                        try:
+                            is_before = int(other_chunk) < int(base_chunk)
+                        except (ValueError, TypeError):
+                            is_before = False
+
+                        if is_before:
+                            base_hit["text"] = other.get("text", "").rstrip() + "\n\n" + base_hit.get("text", "").lstrip()
+                            base_hit["sub_chunks"].insert(0, other.get("text", ""))
+                        else:
+                            base_hit["text"] = base_hit.get("text", "").rstrip() + "\n\n" + other.get("text", "").lstrip()
+                            base_hit["sub_chunks"].append(other.get("text", ""))
 
                     base_words += other_words
                     # Keep snippet as the clean, unmodified snippet of the highest-scoring primary chunk
@@ -498,11 +572,17 @@ def text_query(
                         if n_key not in deduped:
                             deduped[n_key] = norm_n
                             candidates.append(norm_n)
+                        else:
+                            # Elevate candidate score so it is inside the rerank window
+                            deduped[n_key]["score"] = max(deduped[n_key].get("score", 0.0), 0.85)
             except Exception as exc:
                 logger.debug("[search] neighbor expansion notice: %s", exc)
 
+        # Ensure candidates are sorted so the expanded neighbor tables are in the rerank pool
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+
     # 6) Cross-encoder rerank with diverse pool and coalesce same-page adjacent chunks
-    rerank_pool_size = max(top_k * 2, 10)
+    rerank_pool_size = max(top_k * 3, 25)
     reranked = _rerank(query, candidates, top_n=rerank_pool_size)
     return _coalesce_and_diversify(reranked, top_k)
 

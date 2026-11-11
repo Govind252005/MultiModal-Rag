@@ -158,9 +158,9 @@ LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b-instruct")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
 # Keep the local prompt budget large enough for retrieved evidence while
 # avoiding unnecessary prompt processing for short grounded answers.
-LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", os.getenv("OLLAMA_NUM_CTX", "3072")))
+LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", os.getenv("OLLAMA_NUM_CTX", "8192")))
 # Strict RAG answers should be short; callers can raise this for long answers.
-OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "384"))
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "1024"))
 # Qwen3 supports an explicit "thinking" mode; keep it off by default for
 # fast, low-latency RAG answers rather than relying on the model's default.
 OLLAMA_THINK = os.getenv("OLLAMA_THINK", "0") == "1"
@@ -174,7 +174,7 @@ HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "4"))
 # generation/prompt_templates.py::truncate_hits_to_budget — applied once,
 # before both citations and the prompt are built, so what's cited always
 # matches what the LLM actually saw.
-MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "2500"))
+MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "4096"))
 
 # ------------------------------------------------------------------ Redis cache
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
