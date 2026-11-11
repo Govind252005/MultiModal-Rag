@@ -14,11 +14,14 @@ from __future__ import annotations
 import hashlib
 import json
 import io
+import logging
 import shutil
 import threading
 import time
 from pathlib import Path
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from backend import cache as cache_store
 
@@ -1520,7 +1523,7 @@ def _auto_refresh_session_files(session_id: str, user_id: str, org_id: str) -> N
                 fp = vector_store.get_file_fingerprint(p.name, session_id=session_id, user_id=user_id, org_id=org_id)
                 if fp and fp.get("pipeline_version") != config.INGESTION_PIPELINE_VERSION:
                     logger.info("Auto-upgrading session file %s to pipeline version %s", p.name, config.INGESTION_PIPELINE_VERSION)
-                    ingest.ingest_file(str(p), session_id=session_id, user_id=user_id, org_id=org_id)
+                    ingest_mod.ingest_file(str(p), session_id=session_id, user_id=user_id, org_id=org_id)
     except Exception as exc:
         logger.debug("Session auto-refresh notice: %s", exc)
 
@@ -1534,7 +1537,6 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
     session_store.ensure_exists(req.session_id, user["id"], org_id=org_id)
     _require_owner(req.session_id, user)
     _check_chat_rate_limit(user["id"])
-    _auto_refresh_session_files(req.session_id, user["id"], org_id)
     _auto_refresh_session_files(req.session_id, user["id"], org_id)
 
     # Resolve Phase 3 feature flags (request overrides server config default).

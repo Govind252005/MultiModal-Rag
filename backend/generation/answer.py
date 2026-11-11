@@ -313,6 +313,11 @@ def _needs_finalization(text: str) -> bool:
 def _enforce_clean_answer(text: str) -> str:
     """Never expose a draft that still contains visible model reasoning.
     Never fabricate citation numbers (brief Phase 4 §10 / rule #9)."""
+    if not text:
+        return prompt_templates.MISSING_CONTEXT_MESSAGE
+    # Preserve structured Markdown tables
+    if re.search(r"\|.*\|", text) and re.search(r"\|[-:\s|]+\|", text):
+        return text.strip()
     if _needs_finalization(text):
         return prompt_templates.MISSING_CONTEXT_MESSAGE
     return text.strip()
