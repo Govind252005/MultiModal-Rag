@@ -283,4 +283,59 @@ def test_ollama_reasoning_preamble_sanitization():
     assert "[1]" in cleaned
 
 
+def test_supervisor_under_whose_supervision_extraction():
+    """Verify exact supervisor name extraction under multi-line formats without designation bleed."""
+    sample = (
+        "SOFTWARE VERIFICATION, VALIDATION AND TESTING\n"
+        "SVVT PRACTICAL FILE\n"
+        "Submitted by\n"
+        "GOVIND SHREELOCHAN (00720802723)\n"
+        "CSE-A | Batch 2023-2027\n"
+        "Under the supervision of\n"
+        "TANISHA MADAN\n"
+        "Faculty / Subject Instructor\n"
+    )
+    hits = [{"text": sample, "snippet": sample[:60], "file": "practical.pdf"}]
+    citations = [{"index": 1, "file": "practical.pdf", "score": 0.95}]
+
+    res = answer._direct_field_answer("under whose supervision this document is formed?", hits, citations)
+    assert res == "TANISHA MADAN [1]"
+
+    res2 = answer._direct_field_answer("who supervised this document?", hits, citations)
+    assert res2 == "TANISHA MADAN [1]"
+
+    res3 = answer._direct_field_answer("who is the mentor?", hits, citations)
+    assert res3 == "TANISHA MADAN [1]"
+
+
+def test_restrict_citations_auto_attach_single_badge():
+    """Verify answers without citations get auto-attached [1] and compacted citation list."""
+    sample_cit = [{"index": 1, "file": "doc.pdf", "text": "TANISHA MADAN Faculty"}]
+
+    ans, cits = answer._restrict_citations_to_answer("TANISHA MADAN", sample_cit)
+    assert ans == "TANISHA MADAN [1]"
+    assert len(cits) == 1
+    assert cits[0]["index"] == 1
+
+    from backend.generation import prompt_templates
+    ans_miss, cits_miss = answer._restrict_citations_to_answer(prompt_templates.MISSING_CONTEXT_MESSAGE, sample_cit)
+    assert ans_miss == prompt_templates.MISSING_CONTEXT_MESSAGE
+    assert len(cits_miss) == 0
+
+
+def test_clean_answer_filler_preamble_and_unclosed_think():
+    """Verify clean_answer handles unclosed <think> tags and strips conversational filler."""
+    from backend.generation import llm_client
+
+    raw_closed = "<think>Analyzing who supervised...</think>\nTANISHA MADAN [1]"
+    assert llm_client.clean_answer(raw_closed) == "TANISHA MADAN [1]"
+
+    raw_filler = "The document is formed under the supervision of TANISHA MADAN [1]"
+    assert llm_client.clean_answer(raw_filler) == "TANISHA MADAN [1]"
+
+    raw_filler2 = "Based on the provided context, the document was formed under the supervision of TANISHA MADAN [1]"
+    assert llm_client.clean_answer(raw_filler2) == "TANISHA MADAN [1]"
+
+
+
 

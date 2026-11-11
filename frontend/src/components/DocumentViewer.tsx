@@ -87,11 +87,11 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
     const pattern = subWords.map((w) => escapeRegex(w).replace(/-/g, '[-—–‑]')).join('\\s+')
     try {
       // Require word boundaries or whitespace so we never cut words (e.g. 'in' into 'i')
-      const rx = new RegExp(`(?:^|\\s|\\b)(${pattern})(?:\\b|\\s|$)`, 'iu')
+      const rx = new RegExp(`(^|\\s|\\b)(${pattern})($|\\s|\\b)`, 'iu')
       const match = rx.exec(pageText)
-      if (match && match[1]) {
-        const offset = match.index + match[0].indexOf(match[1])
-        return { start: offset, end: offset + match[1].length }
+      if (match && match[2]) {
+        const offset = match.index + match[0].indexOf(match[2])
+        return { start: offset, end: offset + match[2].length }
       }
     } catch {
       // ignore regex syntax issues
@@ -137,8 +137,26 @@ function getCandidatePhrases(
     }
   }
 
-  // 1. If user asked "who submitted" or author/supervisor query, prioritize exact submitter block from page
-  if (activeQuery && /\b(who|author|submit|submitted|prepared|student|supervisor)\b/i.test(activeQuery)) {
+  // 1. If user asked about supervisor/supervision, prioritize exact supervisor block
+  if (activeQuery && /\b(supervision|supervisor|supervised|guided|mentor)\b/i.test(activeQuery)) {
+    for (const src of candidatePool) {
+      const supMatch = src.match(/(?:under\s+the\s+supervision\s+of|supervised\s+by|faculty\s+supervisor|faculty\s+guide|supervisor|guided\s+by|mentor)[:\s]*\n*([^\r\n]+)/i)
+      if (supMatch && supMatch[1]) {
+        let name = supMatch[1].trim()
+        name = name.replace(/\s*[,–-]?\s*\b(?:Faculty|Subject\s+Instructor|Instructor|Assistant\s+Professor|Associate\s+Professor|Professor|HOD|Department\s+of[^\r\n]*)\b.*$/i, '').trim()
+        if (name.length >= 3 && !candidates.includes(name)) {
+          candidates.push(name)
+        }
+        const fullBlock = supMatch[0].trim()
+        if (!candidates.includes(fullBlock)) {
+          candidates.push(fullBlock)
+        }
+      }
+    }
+  }
+
+  // 2. If user asked "who submitted" or author query, prioritize exact submitter block from page
+  if (activeQuery && /\b(who|author|submit|submitted|prepared|student)\b/i.test(activeQuery)) {
     for (const src of candidatePool) {
       const authorMatch = src.match(/(?:submitted\s+by|author|prepared\s+by)[:\s]*\n*([^\r\n]+)/i)
       if (authorMatch && authorMatch[1]) {
@@ -154,7 +172,7 @@ function getCandidatePhrases(
     }
   }
 
-  // 2. Multi-line entity patterns (e.g. "Submitted by\nGOVIND SHREELOCHAN", "Aim\nTo specify...")
+  // 3. Multi-line entity patterns (e.g. "Submitted by\nGOVIND SHREELOCHAN", "Aim\nTo specify...")
   for (const src of candidatePool) {
     const submittedMulti = src.match(/submitted\s+by[:\s]*\n*([^\r\n]+)/i)
     if (submittedMulti && submittedMulti[1]) {
@@ -433,18 +451,20 @@ export default function DocumentViewer({
         }
       }
 
-      // Fallback: try first 60 characters of citation text or snippet
+      // Fallback: try first clean word-bounded segment of citation text or snippet
       if (!matchFound) {
         const rawTarget = (cit.text || cit.snippet || '').trim().replace(/\s+/g, ' ')
-        const probe = rawTarget.slice(0, 60)
-        const loc = locatePhraseInText(currentPageText, probe)
-        if (loc && loc.end > loc.start) {
-          matches.push({
-            start: loc.start,
-            end: loc.end,
-            citation: cit,
-            isActive: activeCitation?.index === cit.index,
-          })
+        const probe = snapToWordBoundary(rawTarget, 80)
+        if (probe && probe.length >= 4) {
+          const loc = locatePhraseInText(currentPageText, probe)
+          if (loc && loc.end > loc.start) {
+            matches.push({
+              start: loc.start,
+              end: loc.end,
+              citation: cit,
+              isActive: activeCitation?.index === cit.index,
+            })
+          }
         }
       }
     }
@@ -466,15 +486,21 @@ export default function DocumentViewer({
     let lastIdx = 0
 
     matches.forEach((m, i) => {
-      if (m.start > lastIdx) {
+      let mStart = m.start
+      if (mStart < lastIdx) {
+        if (m.end <= lastIdx) return
+        mStart = lastIdx
+      }
+
+      if (mStart > lastIdx) {
         elements.push(
-          <span key={`text-${lastIdx}-${m.start}`}>
-            {currentPageText.slice(lastIdx, m.start)}
+          <span key={`text-${lastIdx}-${mStart}`}>
+            {currentPageText.slice(lastIdx, mStart)}
           </span>
         )
       }
 
-      const highlightedSlice = currentPageText.slice(m.start, m.end)
+      const highlightedSlice = currentPageText.slice(mStart, m.end)
       const isAct = m.isActive
 
       elements.push(

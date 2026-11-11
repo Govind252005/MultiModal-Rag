@@ -175,10 +175,12 @@ def _direct_field_answer(query: str, hits: List[Dict[str, Any]],
                 re.IGNORECASE,
             )
         )
-    if "faculty supervisor" in q:
+    if re.search(r"\b(supervision|supervisor|supervised|guided|mentor|faculty\s+guide|faculty\s+supervisor|under\s+whose\s+supervision)\b", q):
         field_patterns.append(
-            re.compile(r"\bfaculty\s+supervisor\s*[:#-]?\s*"
-                       r"([^\r\n]+)", re.IGNORECASE)
+            re.compile(
+                r"(?:under\s+the\s+supervision\s+of|supervised\s+by|supervised|faculty\s+supervisor|faculty\s+guide|supervisor|guided\s+by|mentor)\s*[:#-]?\s*(?:\r?\n\s*)?([A-Za-z][A-Za-z. ()&-]{1,60})",
+                re.IGNORECASE,
+            )
         )
     if "address" in q:
         address_pattern = re.compile(
@@ -271,6 +273,12 @@ def _direct_field_answer(query: str, hits: List[Dict[str, Any]],
                         break
                 if extra:
                     value = "\n".join([value] + extra)
+            elif any(k in pattern.pattern for k in ("supervision", "supervisor", "guided", "mentor")):
+                role_stop = re.compile(
+                    r"\s*[,–-]?\s*\b(?:Faculty|Subject\s+Instructor|Instructor|Assistant\s+Professor|Associate\s+Professor|Professor|HOD|Head\s+of\s+Department|Department\s+of[^\r\n]*)\b.*$",
+                    re.IGNORECASE,
+                )
+                value = role_stop.sub("", value).strip(" .,-–\"'`")
             elif "aim" in pattern.pattern:
                 tail = text[match.end():]
                 stop_re = re.compile(
@@ -328,8 +336,21 @@ def _restrict_citations_to_answer(
         if index not in referenced and 1 <= index <= len(citations):
             referenced.append(index)
     if not referenced:
-        if citations:
-            return answer, [citations[0]]
+        if citations and answer and answer != prompt_templates.MISSING_CONTEXT_MESSAGE:
+            # Pick best citation by word overlap with answer, default to first citation
+            words = set(re.findall(r"\w+", answer.lower()))
+            best_idx = 0
+            best_score = -1
+            for idx, c in enumerate(citations):
+                c_text = (c.get("text") or c.get("snippet") or "").lower()
+                c_words = set(re.findall(r"\w+", c_text))
+                overlap = len(words & c_words)
+                if overlap > best_score:
+                    best_score = overlap
+                    best_idx = idx
+            chosen = dict(citations[best_idx])
+            chosen["index"] = 1
+            return f"{answer.rstrip()} [1]", [chosen]
         return answer, []
 
     remap = {old: new for new, old in enumerate(referenced, start=1)}

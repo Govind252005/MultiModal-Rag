@@ -61,12 +61,18 @@ export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [view, setView] = useState<AppView>(() => {
     try {
-      if (window.location.pathname === '/landing') return 'landing';
-      if (!api.hasToken()) return 'landing';
+      const hash = window.location.hash;
+      const path = window.location.pathname;
+      if (path === '/landing' || hash === '#landing') return 'landing';
+      if (hash === '#app' || hash === '#chat') return 'chat';
+      if (hash === '#dashboard') return 'dashboard';
+      const sessionView = sessionStorage.getItem('current_app_view') as AppView | null;
+      if (sessionView && sessionView !== 'landing' && api.hasToken()) return sessionView;
+      return 'landing';
     } catch {
       /* ignore */
     }
-    return 'dashboard';
+    return 'landing';
   });
   const [authChecking, setAuthChecking] = useState(true);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -228,7 +234,22 @@ export default function App() {
     }
   }, [modelsCollapsed]);
 
+  useEffect(() => {
+    try {
+      if (view !== 'login' && view !== 'register') {
+        sessionStorage.setItem('current_app_view', view);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [view]);
+
   function resetLocal() {
+    try {
+      sessionStorage.removeItem('current_app_view');
+    } catch {
+      /* ignore */
+    }
     setCurrentId(null);
     setMessages([]);
     setFiles([]);
@@ -237,6 +258,11 @@ export default function App() {
     setScope(DEFAULT_SCOPE);
   }
   function requestLogout() {
+    try {
+      sessionStorage.removeItem('current_app_view');
+    } catch {
+      /* ignore */
+    }
     setShowLogoutConfirm(true);
   }
 

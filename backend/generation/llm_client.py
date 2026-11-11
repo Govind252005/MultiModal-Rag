@@ -153,6 +153,7 @@ _META_REASONING_LINE_RE = re.compile(
 def clean_answer(text: str) -> str:
     """Return only the model's final answer, never its reasoning preamble."""
     cleaned = _THINK_BLOCK_RE.sub("", text or "")
+    cleaned = re.sub(r"<think>.*$", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
     cleaned = re.sub(r"</think>\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"```(?:text|markdown)?\s*|```", "", cleaned,
                      flags=re.IGNORECASE)
@@ -168,6 +169,17 @@ def clean_answer(text: str) -> str:
         cleaned,
         flags=re.IGNORECASE,
     ).strip()
+
+    # Strip conversational filler preambles without truncating proper nouns
+    filler_re = re.compile(
+        r"^(?:(?:based\s+on|according\s+to|as\s+per|from|in)\s+the\s+(?:provided\s+|given\s+)?(?:context|document|sources?)[,\s]*|"
+        r"according\s+to\s+\[\d+\][,\s]*|"
+        r"(?:the\s+document\s+(?:is|was)\s+)?(?:formed|prepared|created|submitted)\s+under\s+the\s+supervision\s+of\s+|"
+        r"under\s+the\s+supervision\s+of\s+|"
+        r"(?:the\s+document\s+(?:is|was)\s+)?(?:submitted\s+by|authored\s+by)\s+)+",
+        re.IGNORECASE,
+    )
+    cleaned = filler_re.sub("", cleaned).strip()
 
     # Small local models sometimes ignore the no-reasoning instruction and
     # write a visible analysis preamble in `content` even with think=False.
@@ -227,7 +239,7 @@ def _chat_options() -> dict:
     return {
         "temperature": config.LLM_TEMPERATURE,
         "num_ctx": config.LLM_NUM_CTX,
-        "num_predict": config.OLLAMA_NUM_PREDICT,
+        "num_predict": max(config.OLLAMA_NUM_PREDICT, 512),
     }
 
 
