@@ -428,7 +428,10 @@ def _history_for(session_id: str) -> List[dict]:
     out = []
     for m in s.get("messages", []):
         if m.get("role") in ("user", "assistant") and m.get("text"):
-            out.append({"role": m["role"], "content": m["text"]})
+            text = m["text"]
+            if m.get("role") == "assistant" and ("does not contain this information" in text.lower() or "llm unavailable" in text.lower()):
+                continue
+            out.append({"role": m["role"], "content": text})
     return out
 
 def _cache_key(route: str, user_id: str, payload: dict, org_id: Optional[str] = None) -> str:
@@ -1644,7 +1647,8 @@ def query(req: QueryRequest, user: dict = Depends(get_user)):
     )
     result["metrics"] = eval_metrics
 
-    cache_store.set_json(key, result)
+    if result.get("answer") and prompt_templates.MISSING_CONTEXT_MESSAGE not in result["answer"]:
+        cache_store.set_json(key, result)
 
     if req.persist_messages:
         session_store.append_message(req.session_id, {"role": "user", "text": req.query})
@@ -1890,7 +1894,8 @@ def extract(req: QueryRequest, user: dict = Depends(get_user)):
     )
     result["retrieved"] = hits
 
-    cache_store.set_json(key, result)
+    if result.get("answer") and prompt_templates.MISSING_CONTEXT_MESSAGE not in result["answer"]:
+        cache_store.set_json(key, result)
     return result
 
 
@@ -1937,7 +1942,8 @@ def summarize(req: QueryRequest, user: dict = Depends(get_user)):
     )
     result["retrieved"] = hits
 
-    cache_store.set_json(key, result)
+    if result.get("answer") and prompt_templates.MISSING_CONTEXT_MESSAGE not in result["answer"]:
+        cache_store.set_json(key, result)
     return result
 
 @app.post("/api/query/image")

@@ -307,17 +307,17 @@ def _faithfulness_warning(text: str) -> bool:
 
 def _needs_finalization(text: str) -> bool:
     """Detect visible chain-of-thought-style prose in model content."""
+    if not text:
+        return False
+    # Structured Markdown tables are finalized structured outputs
+    if re.search(r"\|.*\|", text) and re.search(r"\|[-:\s|]+\|", text):
+        return False
     return bool(llm_client._REASONING_MARKER_RE.search(text or ""))
 
 
 def _enforce_clean_answer(text: str) -> str:
     """Never expose a draft that still contains visible model reasoning.
     Never fabricate citation numbers (brief Phase 4 §10 / rule #9)."""
-    if not text:
-        return prompt_templates.MISSING_CONTEXT_MESSAGE
-    # Preserve structured Markdown tables
-    if re.search(r"\|.*\|", text) and re.search(r"\|[-:\s|]+\|", text):
-        return text.strip()
     if _needs_finalization(text):
         return prompt_templates.MISSING_CONTEXT_MESSAGE
     return text.strip()
@@ -393,11 +393,14 @@ def _finalize_answer(draft: str, prompt: str, provider: Optional[str],
 def _sanitize_history(history):
     cleaned = []
     for turn in history or []:
-        content = (turn.get("content") or "").strip()
+        content = (turn.get("content") or turn.get("text") or "").strip()
         if not content:
             continue
         low = content.lower()
         if _STYLE_ONLY_RE.match(content) or ("format" in low and len(low.split()) <= 8):
+            continue
+        # Never pass negative refusals or fallback notices into model history to avoid self-reinforcing refusal loops
+        if turn.get("role") == "assistant" and ("does not contain this information" in low or "llm unavailable" in low):
             continue
         cleaned.append({"role": turn.get("role", "user"), "content": content})
     return cleaned[-2 * config.HISTORY_TURNS:]
