@@ -464,7 +464,8 @@ def _resolve_model(req_model: Optional[str], provider: str, user_id: str) -> str
     if req_model:
         return req_model.strip()
     if provider == "ollama":
-        return config.LLM_MODEL
+        custom = active_provider.get_active_model(user_id)
+        return custom or config.LLM_MODEL
     custom = active_provider.get_active_model(user_id)
     if custom:
         return custom

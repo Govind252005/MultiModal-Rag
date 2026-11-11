@@ -159,7 +159,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Active Inference
               </p>
               <h3 className="mt-2 text-base font-bold text-surface-900 dark:text-surface-100 truncate max-w-[130px]">
-                {activeProvider?.model || health?.llm_model || 'qwen3:4b'}
+                {activeProvider?.model || health?.llm_model || 'qwen2.5:7b-instruct'}
               </h3>
               <p className="mt-1 text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
                 {isLocal ? 'Offline (CUDA/CPU)' : 'Cloud API Transit'}

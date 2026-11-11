@@ -282,7 +282,7 @@ export const ModelSettingsView: React.FC<ModelSettingsViewProps> = ({
             <div className="rounded-lg border border-surface-200 bg-surface-50/70 p-3 dark:border-surface-800 dark:bg-surface-900/60">
               <span className="block text-[11px] font-semibold uppercase text-surface-400">Default Model</span>
               <span className="mt-1 font-bold text-xs font-mono text-surface-900 dark:text-surface-100 truncate block">
-                {ollamaStatus?.default_model || 'qwen3:4b'}
+                {ollamaStatus?.default_model || 'qwen2.5:7b-instruct'}
               </span>
             </div>
           </div>
@@ -433,7 +433,7 @@ export const ModelSettingsView: React.FC<ModelSettingsViewProps> = ({
                 <td className="px-3.5 py-3 font-medium text-surface-900 dark:text-surface-100">
                   Local LLM Inference
                 </td>
-                <td className="px-3.5 py-3 font-mono">Ollama (qwen3:4b)</td>
+                <td className="px-3.5 py-3 font-mono">Ollama (qwen2.5:7b-instruct)</td>
                 <td className="px-3.5 py-3">
                   <Badge variant="success">100% Offline</Badge>
                 </td>

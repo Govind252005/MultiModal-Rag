@@ -74,7 +74,7 @@ def get_active_full(user_id: str) -> Dict[str, Any]:
     provider = get_active(user_id)
     is_local = provider == "ollama"
     custom_model = get_active_model(user_id)
-    model = (config.LLM_MODEL if is_local else (custom_model or _model_for(provider)))
+    model = (custom_model or config.LLM_MODEL) if is_local else (custom_model or _model_for(provider))
     return {
         "provider": provider,
         "model": model,

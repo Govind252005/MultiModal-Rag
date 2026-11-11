@@ -272,7 +272,7 @@ export default function Login({ onAuthed }: { onAuthed: (user: AuthUser) => void
                 icon={Brain}
                 color="bg-gradient-to-br from-orange-500 to-rose-500"
                 title="Local LLM (Ollama)"
-                desc="Qwen3 · 100% offline · no API keys"
+                desc="Qwen2.5 · 100% offline · no API keys"
               />
             </div>
           </div>

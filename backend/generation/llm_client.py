@@ -272,9 +272,10 @@ def _chat_kwargs(messages: List[Dict[str, str]], model: Optional[str] = None) ->
         keep_alive=config.OLLAMA_KEEP_ALIVE,
         options=_chat_options(),
     )
-    # Only inject think=False for models that support it (qwen3)
-    if "qwen3" in target_model.lower():
-        kwargs["think"] = False
+    # Keep reasoning disabled at the API boundary. Do not rely on the
+    # model's default or concatenate Ollama's separate `thinking` field into
+    # the user-visible `content` field.
+    kwargs["think"] = False
     return kwargs
 
 
@@ -376,7 +377,7 @@ def stream_chat(
                 exc = retry_exc
         if exc is not None:
             raise LLMError(
-                f"Could not reach the local LLM ('{config.LLM_MODEL}' via "
+                f"Could not reach the local LLM ('{target_model}' via "
                 f"{config.OLLAMA_HOST}). Is Ollama running and the model pulled? "
                 f"Original error: {exc}"
             ) from exc
@@ -394,7 +395,7 @@ def stream_chat(
 
     metrics = {
         "provider": "ollama",
-        "model": config.LLM_MODEL,
+        "model": target_model,
         "context_size": config.LLM_NUM_CTX,
         "thinking_enabled": False,
         "streaming_enabled": True,

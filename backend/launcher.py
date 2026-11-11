@@ -73,7 +73,7 @@ def _check_ollama() -> None:
     from backend import config  # imported after _bootstrap_paths()
 
     ollama_host = getattr(config, "OLLAMA_HOST", "http://localhost:11434")
-    model = getattr(config, "LLM_MODEL", "qwen3:4b")
+    model = getattr(config, "LLM_MODEL", "qwen2.5:7b-instruct")
     try:
         with urlopen(f"{ollama_host}/api/tags", timeout=3) as resp:
             body = resp.read().decode("utf-8", "ignore")

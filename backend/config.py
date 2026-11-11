@@ -154,7 +154,7 @@ os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 # qwen3:4b, thinking disabled, bounded context + output, streaming enabled.
 # Every one of these is now env-overridable — nothing here is hardcoded.
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen3:4b")
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b-instruct")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
 # Keep the local prompt budget large enough for retrieved evidence while
 # avoiding unnecessary prompt processing for short grounded answers.

@@ -64,7 +64,7 @@ export default function ProviderPanel({
       const res = await api.getProviders()
       setProviders(res.providers)
       for (const p of res.providers) {
-        if (!p.local && p.has_key) {
+        if (p.local || p.has_key) {
           loadModels(p.name)
         }
       }
@@ -266,8 +266,8 @@ export default function ProviderPanel({
                     )}
                   </div>
 
-                  {/* Model Selector for Cloud Providers with valid Key */}
-                  {!p.local && expanded && p.has_key && (
+                  {/* Model Selector for Local Ollama or Cloud Providers with valid Key */}
+                  {expanded && (p.local || p.has_key) && (
                     <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-700/60">
                       <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
                         <span>Model</span>

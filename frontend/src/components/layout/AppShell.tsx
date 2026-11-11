@@ -173,7 +173,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               </div>
               <p className="mt-1 text-[11px] opacity-80 truncate">
                 {isLocal
-                  ? `Local Qwen (Ollama: ${activeProvider?.model || health?.llm_model || 'qwen3:4b'})`
+                  ? `Local Qwen (Ollama: ${activeProvider?.model || health?.llm_model || 'qwen2.5:7b-instruct'})`
                   : `${activeProvider?.provider || 'Cloud'}: ${activeProvider?.model || 'Active'}`}
               </p>
             </div>
