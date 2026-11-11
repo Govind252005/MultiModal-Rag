@@ -16,7 +16,6 @@ import {
   Sparkles,
 } from 'lucide-react'
 import type { AppView, AuthUser, ActiveProviderResponse, HealthResponse } from '../../types'
-import { Badge } from '../ui/Badge'
 
 export interface AppShellProps {
   currentView: AppView
@@ -203,14 +202,24 @@ export const AppShell: React.FC<AppShellProps> = ({
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={onLogout}
-              className="rounded-lg p-1.5 text-surface-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors"
-              title="Sign Out"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={onToggleTheme}
+                className="rounded-lg p-1.5 text-surface-400 hover:bg-surface-100 hover:text-surface-700 dark:hover:bg-surface-800 dark:hover:text-surface-200 transition-colors"
+                title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              >
+                {theme === 'dark' ? '☀️' : '🌙'}
+              </button>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="rounded-lg p-1.5 text-surface-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors"
+                title="Sign Out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -237,28 +246,6 @@ export const AppShell: React.FC<AppShellProps> = ({
                 {currentView}
               </h1>
             </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Real Connection Badge */}
-            <Badge
-              variant={isLocal ? 'success' : 'brand'}
-              size="sm"
-              dot
-              className="hidden sm:inline-flex"
-            >
-              {isLocal ? 'Local: On-Premises' : `Cloud: ${activeProvider?.provider || 'API'}`}
-            </Badge>
-
-            {/* Theme Toggle */}
-            <button
-              type="button"
-              onClick={onToggleTheme}
-              className="rounded-lg p-2 text-surface-500 hover:bg-surface-100 hover:text-surface-800 dark:text-surface-400 dark:hover:bg-surface-800 dark:hover:text-surface-200 transition-colors"
-              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            >
-              {theme === 'dark' ? '☀️' : '🌙'}
-            </button>
           </div>
         </header>
 

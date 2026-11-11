@@ -39,7 +39,7 @@ if (-not (Test-Path $PythonExe)) {
 
 # 4. Start production Uvicorn server serving backend API and built SPA frontend
 Write-Host "[4/4] Starting FastAPI production server on http://127.0.0.1:8000..." -ForegroundColor Yellow
-$proc = Start-Process -FilePath $PythonExe -ArgumentList "-m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4" -PassThru -WindowStyle Normal
+$proc = Start-Process -FilePath $PythonExe -ArgumentList "-m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1" -PassThru -WindowStyle Normal
 
 # Save PID for graceful shutdown
 if (-not (Test-Path "$RootDir\storage")) {

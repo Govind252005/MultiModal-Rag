@@ -5,11 +5,8 @@ import {
   Database,
   RefreshCw,
   Library,
-  Sun,
-  Moon,
-  LogOut,
 } from "lucide-react";
-import type { AuthUser, HealthResponse, ActiveProviderResponse } from "../types";
+import type { HealthResponse, ActiveProviderResponse } from "../types";
 
 export default function Header({
   healthData,
@@ -18,10 +15,6 @@ export default function Header({
   onRefresh,
   onOpenLibrary,
   onOpenSidebar,
-  theme,
-  onToggleTheme,
-  user,
-  onRequestLogout,
   onNavigate,
 }: {
   healthData: HealthResponse | null;
@@ -30,10 +23,10 @@ export default function Header({
   onRefresh: () => void;
   onOpenLibrary: () => void;
   onOpenSidebar: () => void;
-  theme: "light" | "dark";
-  onToggleTheme: () => void;
-  user: AuthUser;
-  onRequestLogout: () => void;
+  theme?: "light" | "dark";
+  onToggleTheme?: () => void;
+  user?: any;
+  onRequestLogout?: () => void;
   onNavigate?: (view: 'landing' | 'dashboard') => void;
 }) {
 
@@ -110,17 +103,6 @@ export default function Header({
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </button>
-        <button
-          onClick={onToggleTheme}
-          className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 dark:hover:bg-slate-800"
-          title="Toggle light / dark"
-        >
-          {theme === "dark" ? (
-            <Sun className="h-4 w-4" />
-          ) : (
-            <Moon className="h-4 w-4" />
-          )}
-        </button>
 
         <button
           onClick={onOpenLibrary}
@@ -129,20 +111,6 @@ export default function Header({
         >
           <Library className="h-4 w-4" />
           <span className="hidden sm:inline">Library</span>
-        </button>
-
-        <span
-          className="ml-1 hidden max-w-[140px] truncate text-xs text-slate-500 dark:text-slate-400 lg:block"
-          title={user.email}
-        >
-          {user.email}
-        </span>
-        <button
-          onClick={onRequestLogout}
-          className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
-          title="Log out"
-        >
-          <LogOut className="h-4 w-4" />
         </button>
       </div>
     </header>

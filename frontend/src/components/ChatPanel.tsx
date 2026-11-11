@@ -14,9 +14,7 @@ import {
   FileText,
   Image as ImageIcon,
   AudioLines,
-  ShieldCheck,
-  Zap,
-  Target,
+  Edit3,
 } from 'lucide-react'
 import type { ChatMessage, Citation } from '../types'
 import AnswerText from './AnswerText'
@@ -31,6 +29,7 @@ export interface ChatPanelProps {
   onCitationClick: (index: number, citations?: Citation[], answerText?: string, userQuery?: string) => void
   onPromptClick?: (prompt: string) => void
   onRegenerate?: () => void
+  onRewriteQuery?: (query: string) => void
 }
 
 export default function ChatPanel({
@@ -38,6 +37,7 @@ export default function ChatPanel({
   onCitationClick,
   onPromptClick,
   onRegenerate,
+  onRewriteQuery,
 }: ChatPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [lightbox, setLightbox] = useState<LightboxTarget | null>(null)
@@ -55,7 +55,14 @@ export default function ChatPanel({
       <div className="max-w-4xl mx-auto space-y-6">
         {messages.map((m, idx) => {
           if (m.role === 'user') {
-            return <UserBubble key={m.id || idx} message={m} onOpenImage={setLightbox} />
+            return (
+              <UserBubble
+                key={m.id || idx}
+                message={m}
+                onOpenImage={setLightbox}
+                onRewrite={onRewriteQuery}
+              />
+            )
           }
           let precedingUserQuery = ''
           for (let i = idx - 1; i >= 0; i--) {
@@ -85,12 +92,45 @@ export default function ChatPanel({
 function UserBubble({
   message,
   onOpenImage,
+  onRewrite,
 }: {
   message: ChatMessage
   onOpenImage: (t: LightboxTarget) => void
+  onRewrite?: (text: string) => void
 }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message.text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
-    <div className="flex justify-end gap-3">
+    <div className="group flex justify-end gap-3 items-start">
+      {/* Quick Action buttons (Rewrite/Edit and Copy) */}
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity self-center text-xs text-surface-400">
+        {onRewrite && (
+          <button
+            type="button"
+            onClick={() => onRewrite(message.text)}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 text-surface-600 dark:text-surface-300 transition shadow-2xs"
+            title="Edit / Rewrite query"
+          >
+            <Edit3 className="h-3.5 w-3.5 text-brand-500" />
+            <span className="hidden sm:inline font-medium text-[11px]">Edit</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="rounded-lg p-1.5 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 text-surface-600 dark:text-surface-300 transition shadow-2xs"
+          title="Copy query text"
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+
       <div className="max-w-[85%] sm:max-w-[75%] space-y-2 rounded-2xl rounded-tr-sm bg-brand-600 px-4 py-3 text-sm text-white shadow-subtle">
         {message.imageUrl && (
           <img
@@ -173,50 +213,6 @@ function AssistantBubble({
             {message.citations && message.citations.length > 0 && (
               <InlineCitationImages citations={message.citations} onOpenImage={onOpenImage} />
             )}
-
-            {/* Telemetry pill */}
-            {message.usedLlm === false && message.citations && message.citations.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-1.5 pt-2 text-[11px] text-surface-500 font-mono">
-                <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 border border-amber-200 dark:border-amber-800/60 font-medium">
-                  <Zap className="h-3 w-3 text-amber-500" />
-                  <span>
-                    Instant Deterministic Extract{' '}
-                    {message.metrics?.retrieval_ms != null
-                      ? `(${Math.round(message.metrics.retrieval_ms)}ms)`
-                      : '(<5ms)'}
-                  </span>
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 border border-blue-200 dark:border-blue-800/60 font-medium">
-                  <Target className="h-3 w-3" />
-                  <span>Exact Match</span>
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 border border-emerald-200 dark:border-emerald-800/60 font-medium">
-                  <ShieldCheck className="h-3 w-3" />
-                  <span>Offline Verified</span>
-                </span>
-              </div>
-            ) : message.metrics ? (
-              <div className="flex flex-wrap items-center gap-1.5 pt-2 text-[11px] text-surface-500 font-mono">
-                <span className="inline-flex items-center gap-1 rounded-md bg-surface-100 dark:bg-surface-800 px-2 py-0.5 border border-surface-200 dark:border-surface-700 font-medium">
-                  <Zap className="h-3 w-3 text-amber-500" />
-                  <span>{message.metrics.ttft_ms != null ? `${Math.round(message.metrics.ttft_ms)}ms TTFT` : 'Fast TTFT'}</span>
-                </span>
-                {message.metrics.tokens_per_second != null && Number(message.metrics.tokens_per_second) > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-surface-100 dark:bg-surface-800 px-2 py-0.5 border border-surface-200 dark:border-surface-700">
-                    <span>{Number(message.metrics.tokens_per_second).toFixed(1)} tok/s</span>
-                  </span>
-                )}
-                {message.metrics.retrieval_ms != null && (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-surface-100 dark:bg-surface-800 px-2 py-0.5 border border-surface-200 dark:border-surface-700">
-                    <span>retrieval {Math.round(message.metrics.retrieval_ms)}ms</span>
-                  </span>
-                )}
-                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 border border-emerald-200 dark:border-emerald-800/60 font-medium">
-                  <ShieldCheck className="h-3 w-3" />
-                  {message.provider === 'ollama' ? 'Offline Air-Gapped' : `${(message.provider || 'AI').toUpperCase()} Grounded`}
-                </span>
-              </div>
-            ) : null}
 
             {/* Assistant Message Action Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-surface-100 dark:border-surface-800/80 text-xs text-surface-400">

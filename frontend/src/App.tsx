@@ -120,6 +120,7 @@ export default function App() {
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const [splitRatio, setSplitRatio] = useState<number>(50);
   const [error, setError] = useState<string | null>(null);
+  const [composerQuery, setComposerQuery] = useState<string>('');
 
   const lastUserQuery = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -686,9 +687,13 @@ export default function App() {
                   onCitationClick={handleCitationClick}
                   onPromptClick={(p) => handleTextQuery(p)}
                   onRegenerate={handleRegenerate}
+                  onRewriteQuery={(q) => setComposerQuery(q)}
                 />
                 <Composer
-                  onSubmitText={handleTextQuery}
+                  onSubmitText={(text) => {
+                    setComposerQuery('');
+                    handleTextQuery(text);
+                  }}
                   onImageQuery={handleImageQuery}
                   onAudioQuery={handleAudioQuery}
                   onStopGeneration={stopGeneration}
@@ -701,6 +706,7 @@ export default function App() {
                   topK={topK}
                   setTopK={setTopK}
                   activeProvider={activeProviderInfo}
+                  prefillQuery={composerQuery}
                 />
               </div>
 

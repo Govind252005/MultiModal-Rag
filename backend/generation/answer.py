@@ -223,11 +223,27 @@ def _direct_field_answer(query: str, hits: List[Dict[str, Any]],
                 re.IGNORECASE,
             )
         )
+    if re.search(r"\b(?:aim|objective)\b", q):
+        field_patterns.append(
+            re.compile(
+                r"\b(?:aim|objective)\s*[:#-]?\s*(?:\r?\n\s*)?([^\r\n]+)",
+                re.IGNORECASE,
+            )
+        )
 
     if not field_patterns:
         return None
 
-    for index, hit in enumerate(hits, start=1):
+    exp_num_match = re.search(r"\b(?:experiment|exp\.?)\s*(?:no\.?|number)?\s*([0-9a-zA-Z]+)\b", q)
+    target_exp = exp_num_match.group(1).lower() if exp_num_match else None
+
+    # If query targets an experiment (e.g. experiment 2), sort hits mentioning target experiment first
+    sorted_hits = list(enumerate(hits, start=1))
+    if target_exp:
+        exp_re = re.compile(rf"\b(?:experiment|exp\.?)\s*(?:no\.?|number)?\s*[:#-]?\s*{re.escape(target_exp)}\b", re.IGNORECASE)
+        sorted_hits.sort(key=lambda item: 0 if exp_re.search(str(item[1].get("text") or item[1].get("snippet") or "")) else 1)
+
+    for index, hit in sorted_hits:
         text = str(hit.get("text") or hit.get("snippet") or "")
         for pattern in field_patterns:
             match = pattern.search(text)
@@ -255,6 +271,23 @@ def _direct_field_answer(query: str, hits: List[Dict[str, Any]],
                         break
                 if extra:
                     value = "\n".join([value] + extra)
+            elif "aim" in pattern.pattern:
+                tail = text[match.end():]
+                stop_re = re.compile(
+                    r"\b(?:theory|specifications|procedure|hardware|software|result|discussion|conclusion|page)\b",
+                    re.IGNORECASE,
+                )
+                extra = []
+                for line in tail.splitlines()[:2]:
+                    line_str = line.strip()
+                    if not line_str or stop_re.search(line_str):
+                        break
+                    if not value.endswith((".", "!", "?")) and (line_str[0].islower() or line_str.startswith(("and ", "with ", "using ", "for "))):
+                        extra.append(line_str)
+                    else:
+                        break
+                if extra:
+                    value = " ".join([value] + extra)
             if value:
                 return f"{value} [{index}]"
     return None

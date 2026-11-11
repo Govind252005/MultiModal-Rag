@@ -122,7 +122,9 @@ class LLMError(RuntimeError):
 
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.IGNORECASE | re.DOTALL)
 _FINAL_MARKER_RE = re.compile(
-    r"(?:final\s+answer|the\s+answer|the\s+name|answer)\s*(?:is\s*)?[:\-]?\s*",
+    r"(?:final\s+answer|the\s+answer|the\s+name|answer|we\s+are\s+to\s+output|"
+    r"we\s+should\s+output|so\s+we\s+output|the\s+output\s+is|so\s+we\s+write|"
+    r"we\s+write|output)\s*(?:is\s*)?[:\-]?\s*",
     re.IGNORECASE,
 )
 _REASONING_MARKER_RE = re.compile(
@@ -137,7 +139,13 @@ _REASONING_MARKER_RE = re.compile(
     r"the title is|actually,|likely|similarly|the context says|"
     r"first,? i need|i have the retrieved|let me look|the context has|"
     r"it has details|and it says|the question is about|from the context|"
-    r"the answer is)\b",
+    r"we are to output|the answer is)\b",
+    re.IGNORECASE,
+)
+_META_REASONING_LINE_RE = re.compile(
+    r"^\s*(?:the\s+context\s+says|the\s+instruction\s+says|but\s+note|however,|"
+    r"we\s+can\s+write|we\s+are\s+to|so\s+we\s+write|note\s+that|let's\s+scan|"
+    r"looking\s+at|we\s+need\s+to|i\s+need\s+to|first,|second,|wait,|hmm,)\b",
     re.IGNORECASE,
 )
 
@@ -153,14 +161,50 @@ def clean_answer(text: str) -> str:
     cleaned = re.sub(r"[【［]\s*(\d+)\s*[】］]", r"[\1]", cleaned)
     cleaned = re.sub(r"【\s*(\d+)\s*】", r"[\1]", cleaned)
 
+    # Strip any stray system prompt fragment echoed at the start
+    cleaned = re.sub(
+        r'^(?:immediately\s+with\s+the\s+minimum\s+text\s+needed\.?["\'`]?\s*)+',
+        '',
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+
     # Small local models sometimes ignore the no-reasoning instruction and
     # write a visible analysis preamble in `content` even with think=False.
-    # When they provide a final-answer marker, keep only the last marked
-    # answer. This is deliberately conservative so ordinary document text is
-    # not rewritten.
     markers = list(_FINAL_MARKER_RE.finditer(cleaned))
     if markers and _REASONING_MARKER_RE.search(cleaned[:markers[-1].start()]):
-        cleaned = cleaned[markers[-1].end():]
+        candidate_ans = None
+        for m in reversed(markers):
+            tail = cleaned[m.end():].strip()
+            quoted = re.match(r'^["“\']([^"”\']{8,})["”\']', tail)
+            if quoted:
+                candidate_ans = quoted.group(1).strip()
+                break
+            good_lines = []
+            for line in tail.splitlines():
+                if _META_REASONING_LINE_RE.search(line) or re.match(r'^\s*\[[a-z_\s]+\]\s*$', line, re.IGNORECASE):
+                    break
+                good_lines.append(line)
+            first_block = "\n".join(good_lines).strip()
+            if first_block and not re.match(r'^\[[a-z_\s]+\]$', first_block, re.IGNORECASE) and len(first_block) > 5:
+                candidate_ans = first_block
+                break
+        if candidate_ans:
+            cleaned = candidate_ans
+    elif _REASONING_MARKER_RE.search(cleaned):
+        # Extract quoted answer string if the model put the target in quotes
+        quoted = re.findall(r'["“\']([^"”\']{15,})["”\']', cleaned)
+        non_instruction = [q for q in quoted if "instruction" not in q.lower() and "background" not in q.lower()]
+        if non_instruction:
+            ans = re.sub(r'^aim\s+[:\-]?\s*', '', non_instruction[-1], flags=re.IGNORECASE).strip()
+            cleaned = ans
+        else:
+            good_lines = [l for l in cleaned.splitlines() if not _META_REASONING_LINE_RE.search(l)]
+            cleaned = "\n".join(good_lines).strip()
+
+    # Ensure a single clean citation badge exists if missing
+    if cleaned and not re.search(r'\[\d+\]', cleaned) and _REASONING_MARKER_RE.search(text or ""):
+        cleaned = f"{cleaned} [1]"
 
     return cleaned.strip()
 

@@ -147,6 +147,21 @@ def get_text_corpus(where=None, limit: Optional[int] = None) -> List[Dict[str, A
         })
     return out
 
+def _reset_collections():
+    global _client, _text_col, _image_col
+    try:
+        _client = chromadb.PersistentClient(
+            path=str(config.CHROMA_DIR),
+            settings=Settings(anonymized_telemetry=False, allow_reset=True),
+        )
+        _text_col = _client.get_or_create_collection(
+            name=config.TEXT_COLLECTION, metadata={"hnsw:space": "cosine"})
+        _image_col = _client.get_or_create_collection(
+            name=config.IMAGE_COLLECTION, metadata={"hnsw:space": "cosine"})
+    except Exception as exc:
+        print(f"[vector_store] _reset_collections error: {exc}")
+
+
 def query_text(embedding, top_k=config.DEFAULT_TOP_K, where=None) -> List[Dict[str, Any]]:
     global _text_col
     try:
@@ -155,10 +170,9 @@ def query_text(embedding, top_k=config.DEFAULT_TOP_K, where=None) -> List[Dict[s
             include=["documents", "metadatas", "distances"])
         return _format_results(res)
     except Exception as exc:
-        print(f"[vector_store] query_text warning: {exc}. Re-acquiring collection handle...")
+        print(f"[vector_store] query_text warning: {exc}. Re-acquiring fresh client and collection handle...")
         try:
-            _text_col = _client.get_or_create_collection(
-                name=config.TEXT_COLLECTION, metadata={"hnsw:space": "cosine"})
+            _reset_collections()
             res = _text_col.query(
                 query_embeddings=[embedding], n_results=top_k, where=where or None,
                 include=["documents", "metadatas", "distances"])
@@ -176,10 +190,9 @@ def query_images(embedding, top_k=config.DEFAULT_TOP_K, where=None) -> List[Dict
             include=["documents", "metadatas", "distances"])
         return _format_results(res)
     except Exception as exc:
-        print(f"[vector_store] query_images warning: {exc}. Re-acquiring collection handle...")
+        print(f"[vector_store] query_images warning: {exc}. Re-acquiring fresh client and collection handle...")
         try:
-            _image_col = _client.get_or_create_collection(
-                name=config.IMAGE_COLLECTION, metadata={"hnsw:space": "cosine"})
+            _reset_collections()
             res = _image_col.query(
                 query_embeddings=[embedding], n_results=top_k, where=where or None,
                 include=["documents", "metadatas", "distances"])

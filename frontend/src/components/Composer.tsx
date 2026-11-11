@@ -40,6 +40,7 @@ export interface ComposerProps {
   topK: number
   setTopK: (n: number) => void
   activeProvider?: ActiveProviderResponse | null
+  prefillQuery?: string
 }
 
 const SUPPORTED_DOCS = '.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.txt,.csv,.md,.json,.log'
@@ -60,7 +61,8 @@ export default function Composer({
   files,
   topK,
   setTopK,
-  activeProvider,
+  activeProvider: _activeProvider,
+  prefillQuery,
 }: ComposerProps) {
   const [input, setInput] = useState('')
   const [stagedFiles, setStagedFiles] = useState<StagedAttachment[]>([])
@@ -79,6 +81,16 @@ export default function Composer({
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<any>(null)
   const speechRecRef = useRef<any>(null)
+
+  // Listen for query rewrite/edit triggers
+  useEffect(() => {
+    if (prefillQuery !== undefined && prefillQuery !== '') {
+      setInput(prefillQuery)
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+      }
+    }
+  }, [prefillQuery])
 
   // Auto-resize textarea as user types
   useEffect(() => {
@@ -348,17 +360,6 @@ export default function Composer({
               title="Chunks retrieved per query"
             />
           </label>
-
-          {activeProvider?.mode === 'cloud' && (
-            <span
-              className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 py-0.5 px-2 text-xs font-medium text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300 shadow-2xs"
-              title={`Cloud LLM: ${activeProvider.provider} (${activeProvider.model})`}
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-sky-500 animate-pulse shrink-0" />
-              <span className="font-semibold uppercase">{activeProvider.provider}</span>
-              <span className="text-[11px] font-mono text-sky-600 dark:text-sky-400">({activeProvider.model})</span>
-            </span>
-          )}
         </div>
 
         {/* Staging Shelf: Displays staged attachments with thumbnails & removal controls */}

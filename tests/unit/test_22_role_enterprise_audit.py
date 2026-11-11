@@ -234,3 +234,53 @@ def test_table_header_preservation_across_chunks():
         assert rec["metadata"]["page"] == 5
 
 
+def test_experiment_aim_direct_extraction():
+    """Verify that 'what is the aim of experiment 2?' directly extracts the aim without LLM drift."""
+    exp1 = (
+        "EXPERIMENT 1: Boundary Value Analysis\n"
+        "Aim: To design functional and negative test cases for banking.\n"
+    )
+    exp2 = (
+        "EXPERIMENT 2: System Specification and Test Case Design for Inventory Management System\n"
+        "Aim\n"
+        "To specify an Inventory Management System, design test cases and implement a menu-driven C++ prototype.\n"
+        "Theory and Specifications\n"
+        "An inventory system stores product identifiers...\n"
+    )
+    hits = [
+        {"text": exp1, "snippet": exp1[:60], "file": "lab.pdf"},
+        {"text": exp2, "snippet": exp2[:60], "file": "lab.pdf"},
+    ]
+    citations = [
+        {"index": 1, "file": "lab.pdf", "score": 0.8},
+        {"index": 2, "file": "lab.pdf", "score": 0.95},
+    ]
+    res = answer._direct_field_answer("what is the aim of experiment 2?", hits, citations)
+    assert res is not None
+    assert "To specify an Inventory Management System" in res
+    assert "C++ prototype" in res
+    assert "[2]" in res  # Matches experiment 2 hit
+
+
+def test_ollama_reasoning_preamble_sanitization():
+    """Verify clean_answer removes chain-of-thought analysis and prompt echoes from Ollama output."""
+    raw_ollama_output = (
+        'immediately with the minimum text needed."\n\n'
+        'The context says: "Aim To specify an Inventory Management System, design test cases and implement a menu-driven C++ prototype."\n\n'
+        'But note: the context has a line break. We can write it as a string.\n\n'
+        'We are to output: "To specify an Inventory Management System, design test cases and implement a menu-driven C++ prototype."\n\n'
+        'However, the instruction says: "Cite every factual statement using only the supplied source identifiers, immediately after the claim."\n\n'
+        'So we write: [aim string]\n\n'
+        'But note: the instruction says "Do not add background, definitions, examples, ...".'
+    )
+    from backend.generation import llm_client
+    cleaned = llm_client.clean_answer(raw_ollama_output)
+    assert "immediately with the minimum" not in cleaned
+    assert "The context says" not in cleaned
+    assert "We are to output" not in cleaned
+    assert "However, the instruction" not in cleaned
+    assert "To specify an Inventory Management System" in cleaned
+    assert "[1]" in cleaned
+
+
+
