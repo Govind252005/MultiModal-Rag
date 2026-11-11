@@ -103,7 +103,11 @@ def evaluate_query_and_log(
     try:
         from evaluation.judges.faithfulness_judge import FaithfulnessJudge
         judge = FaithfulnessJudge()
-        contexts = [h.get("snippet", "") for h in retrieved_hits if h.get("snippet")]
+        contexts = [
+            h.get("text", "") or h.get("document", "") or h.get("snippet", "")
+            for h in retrieved_hits
+            if (h.get("text") or h.get("document") or h.get("snippet"))
+        ]
         judgement = judge.judge_faithfulness(answer, contexts)
         faithfulness_score = judgement.get("faithfulness_score")
         supported_claims = judgement.get("supported_claims", 0)

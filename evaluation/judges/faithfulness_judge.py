@@ -12,10 +12,29 @@ from evaluation.metrics.generation_metrics import token_overlap_f1
 
 
 def split_into_claims(text: str) -> List[str]:
-    """Splits text into candidate factual sentences/claims."""
+    """Splits text into candidate factual sentences/claims, supporting both prose and markdown tables."""
     cleaned = text.strip()
     if not cleaned:
         return []
+
+    # If text contains markdown table rows, evaluate each data row as a distinct factual claim
+    if "|" in cleaned:
+        lines = [l.strip() for l in cleaned.splitlines()]
+        table_rows = [
+            l for l in lines
+            if l.startswith("|")
+            and not re.match(r"^\|[-:\s|]+\|$", l)
+            and "test id" not in l.lower()
+            and "scenario" not in l.lower()
+            and "use case" not in l.lower()
+        ]
+        non_table = "\n".join(l for l in lines if not l.startswith("|")).strip()
+        claims = list(table_rows)
+        if non_table:
+            raw_sentences = re.split(r"(?<=[.!?])\s+", non_table)
+            claims.extend([s.strip() for s in raw_sentences if len(s.strip()) > 10])
+        return claims if claims else [cleaned]
+
     # Split on sentence terminals: ., !, ? followed by space or newline
     raw_sentences = re.split(r"(?<=[.!?])\s+", cleaned)
     claims = [s.strip() for s in raw_sentences if len(s.strip()) > 10]
