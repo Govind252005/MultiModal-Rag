@@ -14,13 +14,13 @@ export default function AnswerText({
 }: AnswerTextProps) {
   if (!text) return null
 
-  // Split into code blocks vs regular blocks
-  const blocks = text.split(/(```[\s\S]*?```)/g)
+  // Split into code blocks vs regular blocks (supports in-flight streaming code blocks too)
+  const blocks = text.split(/(```[\s\S]*?```|```[\s\S]*$)/g)
 
   return (
     <div className="space-y-3.5 text-sm leading-relaxed text-surface-800 dark:text-surface-200">
       {blocks.map((block, idx) => {
-        if (block.startsWith('```') && block.endsWith('```')) {
+        if (block.startsWith('```')) {
           return <CodeBlock key={idx} raw={block} />
         }
         return (
@@ -38,9 +38,13 @@ export default function AnswerText({
 
 function CodeBlock({ raw }: { raw: string }) {
   const [copied, setCopied] = useState(false)
-  const lines = raw.slice(3, -3).trim().split('\n')
-  const lang = lines[0].trim().toLowerCase()
-  const code = lines.length > 1 && !lines[0].includes(' ') ? lines.slice(1).join('\n') : raw.slice(3, -3).trim()
+  const isClosed = raw.length >= 6 && raw.endsWith('```')
+  const body = isClosed ? raw.slice(3, -3) : raw.slice(3)
+  const lines = body.split('\n')
+  const firstLine = (lines[0] || '').trim().toLowerCase()
+  const isLangTag = firstLine && !firstLine.includes(' ') && /^[a-z0-9_+#.-]+$/i.test(firstLine)
+  const lang = isLangTag ? firstLine : ''
+  const code = isLangTag && lines.length > 1 ? lines.slice(1).join('\n') : body.trim()
 
   function handleCopy() {
     navigator.clipboard.writeText(code)
@@ -49,23 +53,24 @@ function CodeBlock({ raw }: { raw: string }) {
   }
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-surface-200 dark:border-surface-800 bg-surface-900 text-surface-100 font-mono text-xs shadow-subtle">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-surface-800 bg-surface-950/80">
+    <div className="my-3 overflow-hidden rounded-lg border border-surface-200 dark:border-surface-800 bg-surface-900 text-surface-100 font-mono text-xs shadow-subtle">
+      <div className="flex items-center justify-between px-3.5 py-1.5 border-b border-surface-800 bg-surface-950/90">
         <div className="flex items-center gap-2 text-surface-400">
           <Terminal className="h-3.5 w-3.5" />
-          <span className="uppercase text-[11px] font-semibold">{lang || 'CODE'}</span>
+          <span className="uppercase text-[11px] font-medium tracking-wider">{lang || 'CODE'}</span>
         </div>
         <button
+          type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1.5 rounded px-2 py-1 text-surface-300 hover:text-white hover:bg-surface-800 transition-colors"
-          title="Copy code"
+          className="flex items-center gap-1.5 rounded px-2 py-0.5 text-surface-400 hover:text-white hover:bg-surface-800 transition-colors"
+          title="Copy code block"
         >
-          {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-          <span className="text-[11px]">{copied ? 'Copied' : 'Copy'}</span>
+          {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+          <span className="text-[11px] font-mono">{copied ? 'Copied' : 'Copy'}</span>
         </button>
       </div>
-      <div className="p-4 overflow-x-auto scroll-thin">
-        <pre className="text-surface-200">
+      <div className="p-3.5 overflow-x-auto scroll-thin">
+        <pre className="text-surface-200 font-mono text-xs leading-relaxed whitespace-pre">
           <code>{code}</code>
         </pre>
       </div>
@@ -85,6 +90,7 @@ function MarkdownSegment({
   const lines = content.split('\n')
   const elements: React.ReactNode[] = []
   let tableBuffer: string[] = []
+  let quoteBuffer: string[] = []
 
   function flushTable(k: number) {
     if (tableBuffer.length > 0) {
@@ -93,15 +99,39 @@ function MarkdownSegment({
     }
   }
 
+  function flushQuote(k: number) {
+    if (quoteBuffer.length > 0) {
+      const quoteText = quoteBuffer.map((l) => l.replace(/^>\s?/, '')).join('\n')
+      elements.push(
+        <blockquote
+          key={`quote-${k}`}
+          className="my-3 rounded-lg border border-surface-200 dark:border-surface-800 bg-surface-50/70 dark:bg-surface-850/60 p-3 text-xs leading-relaxed text-surface-700 dark:text-surface-300"
+        >
+          {renderInline(quoteText, onCitationClick, validIndexes)}
+        </blockquote>
+      )
+      quoteBuffer = []
+    }
+  }
+
   lines.forEach((line, i) => {
     const trimmed = line.trim()
 
     // Markdown Table detection: lines with multiple pipe delimiters
     if ((trimmed.startsWith('|') && trimmed.endsWith('|')) || (trimmed.includes('|') && trimmed.split('|').length >= 3)) {
+      flushQuote(i)
       tableBuffer.push(trimmed)
       return
     } else {
       flushTable(i)
+    }
+
+    // Markdown Blockquote detection: lines starting with >
+    if (trimmed.startsWith('>')) {
+      quoteBuffer.push(trimmed)
+      return
+    } else {
+      flushQuote(i)
     }
 
     if (!trimmed) {
@@ -111,7 +141,7 @@ function MarkdownSegment({
     // Heading level 1-3
     if (trimmed.startsWith('### ')) {
       elements.push(
-        <h4 key={i} className="text-sm font-bold text-surface-900 dark:text-surface-100 mt-4 mb-1">
+        <h4 key={i} className="text-sm font-semibold tracking-tight text-surface-900 dark:text-surface-100 mt-4 mb-1">
           {renderInline(trimmed.slice(4), onCitationClick, validIndexes)}
         </h4>
       )
@@ -119,15 +149,15 @@ function MarkdownSegment({
     }
     if (trimmed.startsWith('## ')) {
       elements.push(
-        <h3 key={i} className="text-base font-bold text-surface-900 dark:text-surface-100 mt-5 mb-1.5 border-b border-surface-200 dark:border-surface-800 pb-1">
+        <h3 key={i} className="text-base font-semibold tracking-tight text-surface-900 dark:text-surface-100 mt-5 mb-1.5 border-b border-surface-200 dark:border-surface-800 pb-1">
           {renderInline(trimmed.slice(3), onCitationClick, validIndexes)}
         </h3>
       )
       return
     }
-    if (trimmed.startsWith('# ')) {
+    if (trimmed.startsWith('# ') && !trimmed.startsWith('#include') && !trimmed.startsWith('#define') && !trimmed.startsWith('#pragma')) {
       elements.push(
-        <h2 key={i} className="text-lg font-bold text-surface-900 dark:text-surface-100 mt-6 mb-2">
+        <h2 key={i} className="text-lg font-bold tracking-tight text-surface-900 dark:text-surface-100 mt-6 mb-2">
           {renderInline(trimmed.slice(2), onCitationClick, validIndexes)}
         </h2>
       )
@@ -165,7 +195,13 @@ function MarkdownSegment({
   })
 
   flushTable(lines.length)
+  flushQuote(lines.length)
   return <>{elements}</>
+}
+
+function isDividerLine(line: string): boolean {
+  const clean = line.replace(/[|\s:-]/g, '')
+  return clean.length === 0 && line.includes('-')
 }
 
 function MarkdownTable({
@@ -179,7 +215,6 @@ function MarkdownTable({
 }) {
   if (lines.length < 2) return null
 
-  // Row 0 is header, Row 1 is divider (|---|---|), Row 2+ are rows
   const parseRow = (r: string) =>
     r
       .replace(/^\|/, '')
@@ -188,29 +223,29 @@ function MarkdownTable({
       .map((c) => c.trim())
 
   const headers = parseRow(lines[0])
-  const sepIdx = lines.findIndex((l, idx) => idx > 0 && /^\|?[-:\s|]+\|?$/.test(l.trim()))
+  const sepIdx = lines.findIndex((l, idx) => idx > 0 && isDividerLine(l))
   const dataLines = sepIdx > 0 ? lines.slice(sepIdx + 1) : lines.slice(1)
   const rows = dataLines
-    .filter((l) => l.trim().length > 0 && !/^\|?[-:\s|]+\|?$/.test(l.trim()))
+    .filter((l) => l.trim().length > 0 && !isDividerLine(l))
     .map(parseRow)
 
   return (
-    <div className="my-3 overflow-x-auto rounded-xl border border-surface-200 dark:border-surface-800 shadow-subtle">
+    <div className="my-3 overflow-x-auto rounded-lg border border-surface-200 dark:border-surface-800 shadow-subtle">
       <table className="w-full text-left text-xs border-collapse">
-        <thead className="bg-surface-100 dark:bg-surface-800/80 border-b border-surface-200 dark:border-surface-800 text-surface-700 dark:text-surface-300 font-semibold">
+        <thead className="bg-surface-50 dark:bg-surface-850 border-b border-surface-200 dark:border-surface-800 text-surface-700 dark:text-surface-300 font-semibold font-mono">
           <tr>
             {headers.map((h, i) => (
-              <th key={i} className="p-3">
+              <th key={i} className="px-3.5 py-2.5">
                 {renderInline(h, onCitationClick, validIndexes)}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-surface-100 dark:divide-surface-800/60 bg-white dark:bg-surface-900/60">
+        <tbody className="divide-y divide-surface-100 dark:divide-surface-800/60 bg-white dark:bg-surface-900">
           {rows.map((row, rIdx) => (
-            <tr key={rIdx} className="hover:bg-surface-50 dark:hover:bg-surface-800/30 transition-colors">
+            <tr key={rIdx} className="hover:bg-surface-50/80 dark:hover:bg-surface-850/40 transition-colors">
               {row.map((cell, cIdx) => (
-                <td key={cIdx} className="p-3 text-surface-800 dark:text-surface-200">
+                <td key={cIdx} className="px-3.5 py-2 text-surface-800 dark:text-surface-200">
                   {renderInline(cell, onCitationClick, validIndexes)}
                 </td>
               ))}
@@ -240,7 +275,7 @@ function renderInline(
           type="button"
           onClick={() => onCitationClick(num)}
           aria-label={`View supporting evidence source citation ${num}`}
-          className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 mx-0.5 rounded text-[10px] font-bold bg-brand-100 text-brand-700 hover:bg-brand-600 hover:text-white dark:bg-brand-950 dark:text-brand-300 dark:hover:bg-brand-600 transition-colors select-none align-baseline cursor-pointer shadow-2xs"
+          className="inline-flex items-center justify-center font-mono text-[11px] font-semibold px-1.5 py-0.2 mx-0.5 rounded border border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-950/70 text-brand-700 dark:text-brand-300 hover:bg-brand-600 hover:text-white dark:hover:bg-brand-600 transition-all select-none align-baseline cursor-pointer shadow-2xs"
           title={`View supporting evidence source [${num}]`}
         >
           {num}
@@ -248,13 +283,32 @@ function renderInline(
       )
     }
 
-    // Now format bold **bold**, inline code `code`, and italic *italic*
     return <span key={`txt-${idx}`}>{formatInlineMarkdown(part)}</span>
   })
 }
 
 function formatInlineMarkdown(text: string): React.ReactNode {
-  // Bold **text**
+  const highlightParts = text.split(/(==.*?==|<mark>[\s\S]*?<\/mark>)/g)
+  return highlightParts.map((hPart, hIdx) => {
+    if (
+      (hPart.startsWith('==') && hPart.endsWith('==') && hPart.length >= 4) ||
+      (hPart.startsWith('<mark>') && hPart.endsWith('</mark>'))
+    ) {
+      const content = hPart.startsWith('==') ? hPart.slice(2, -2) : hPart.slice(6, -7)
+      return (
+        <mark
+          key={`mark-${hIdx}`}
+          className="bg-amber-100 text-amber-950 dark:bg-amber-950/60 dark:text-amber-200 px-1 py-0.5 rounded font-medium border-b border-amber-400 dark:border-amber-600"
+        >
+          {formatBoldAndCode(content)}
+        </mark>
+      )
+    }
+    return <React.Fragment key={`h-${hIdx}`}>{formatBoldAndCode(hPart)}</React.Fragment>
+  })
+}
+
+function formatBoldAndCode(text: string): React.ReactNode {
   const boldParts = text.split(/(\*\*.*?\*\*)/g)
   return boldParts.map((bPart, bIdx) => {
     if (bPart.startsWith('**') && bPart.endsWith('**')) {
@@ -264,14 +318,13 @@ function formatInlineMarkdown(text: string): React.ReactNode {
         </strong>
       )
     }
-    // Inline code `code`
     const codeParts = bPart.split(/(`.*?`)/g)
     return codeParts.map((cPart, cIdx) => {
       if (cPart.startsWith('`') && cPart.endsWith('`')) {
         return (
           <code
             key={cIdx}
-            className="rounded bg-surface-100 dark:bg-surface-800 px-1.5 py-0.5 font-mono text-[12px] text-brand-700 dark:text-brand-300"
+            className="rounded bg-surface-100 dark:bg-surface-800 px-1.5 py-0.5 font-mono text-[12px] text-surface-900 dark:text-surface-100 border border-surface-200 dark:border-surface-700"
           >
             {cPart.slice(1, -1)}
           </code>

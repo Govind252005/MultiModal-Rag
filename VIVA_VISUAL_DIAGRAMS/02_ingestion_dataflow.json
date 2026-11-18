@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Multimodal Ingestion Pipeline Data Flow",
+    "output": "VIVA_VISUAL_DIAGRAMS/02_ingestion_dataflow.html",
+    "viewBox": [1240, 620],
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "standard"
+  },
+  "stages": [
+    { "label": "Raw Sources" },
+    { "label": "Parsers & OCR" },
+    { "label": "Chunking" },
+    { "label": "Embedding" },
+    { "label": "Storage & Index" }
+  ],
+  "nodes": [
+    { "id": "pdf_sources", "type": "frontend", "label": "PDF Documents", "sublabel": "Native & Scanned", "stage": 0, "row": 0, "tag": "Tables + Text" },
+    { "id": "text_sources", "type": "frontend", "label": "DOCX & Hindi Text", "sublabel": "Devanagari scripts", "stage": 0, "row": 1, "tag": "Multilingual" },
+    { "id": "media_sources", "type": "frontend", "label": "Media Assets", "sublabel": "PNG/JPG/MP3/MP4", "stage": 0, "row": 2, "tag": "Visual + Audio" },
+    
+    { "id": "pymupdf_parser", "type": "backend", "label": "pdf_docx_parser.py", "sublabel": "_extract_row_aligned_text", "stage": 1, "row": 0, "tag": "PyMuPDF" },
+    { "id": "devanagari_cleaner", "type": "backend", "label": "Hindi Normalizer", "sublabel": "Unicode & Matra regex", "stage": 1, "row": 1, "tag": "Indic NLP" },
+    { "id": "multimodal_extract", "type": "backend", "label": "PaddleOCR & Whisper", "sublabel": "BLIP visual captions", "stage": 1, "row": 2, "tag": "OCR + ASR" },
+    
+    { "id": "semantic_chunker", "type": "backend", "label": "chunker.py", "sublabel": "512-tok sliding window", "stage": 2, "row": 1, "tag": "Metadata Tagging" },
+    
+    { "id": "text_embedder", "type": "backend", "label": "Text Bi-Encoder", "sublabel": "all-MiniLM-L6-v2 (384-d)", "stage": 3, "row": 0, "tag": "Dense Vectors" },
+    { "id": "clip_embedder", "type": "backend", "label": "Vision CLIP Model", "sublabel": "clip-ViT-B-32 (512-d)", "stage": 3, "row": 2, "tag": "Cross-Modal" },
+    
+    { "id": "chroma_store", "type": "database", "label": "ChromaDB Store", "sublabel": "vector_store.py", "stage": 4, "row": 0, "tag": "Cosine Index" },
+    { "id": "bm25_lexical", "type": "database", "label": "BM25 Lexical Index", "sublabel": "lexical_index.py", "stage": 4, "row": 2, "tag": "v2_stemming" }
+  ],
+  "flows": [
+    { "id": "f1", "from": "pdf_sources", "to": "pymupdf_parser", "label": "raw PDF pages", "classification": "layout stream", "variant": "emphasis" },
+    { "id": "f2", "from": "text_sources", "to": "devanagari_cleaner", "label": "Unicode text", "classification": "text stream", "variant": "default" },
+    { "id": "f3", "from": "media_sources", "to": "multimodal_extract", "label": "frames & audio tracks", "classification": "multimedia", "variant": "default" },
+    
+    { "id": "f4", "from": "pymupdf_parser", "to": "semantic_chunker", "label": "table & text", "classification": "structured", "variant": "emphasis" },
+    { "id": "f5", "from": "devanagari_cleaner", "to": "semantic_chunker", "label": "clean text", "classification": "tokens", "variant": "default" },
+    { "id": "f6", "from": "multimodal_extract", "to": "semantic_chunker", "label": "transcripts", "classification": "textualized", "variant": "default" },
+    
+    { "id": "f7", "from": "semantic_chunker", "to": "text_embedder", "label": "semantic text passages", "classification": "text chunks", "variant": "emphasis" },
+    { "id": "f8", "from": "multimodal_extract", "to": "clip_embedder", "label": "visual frame crops", "classification": "image arrays", "variant": "dashed" },
+    { "id": "f9", "from": "semantic_chunker", "to": "bm25_lexical", "label": "token frequencies", "classification": "lexical tokens", "variant": "default" },
+    
+    { "id": "f10", "from": "text_embedder", "to": "chroma_store", "label": "384-d dense embeddings", "classification": "embeddings", "variant": "emphasis" },
+    { "id": "f11", "from": "clip_embedder", "to": "chroma_store", "label": "512-d visual embeddings", "classification": "embeddings", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Borderless Table Extraction",
+      "items": [
+        "_extract_row_aligned_text parses lines without physical borders by clustering horizontal baseline coordinates",
+        "Preserves table headers, cell alignments, and columnar relationships in markdown",
+        "Embeds bounding box coordinates [x0, y0, x1, y1] for frontend PDF viewer alignment"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Devanagari & Hindi Normalization",
+      "items": [
+        "Language detect module triggers specialized Devanagari regex cleaning",
+        "Normalizes zero-width joiners (ZWJ), halant conjuncts, and vowel diacritics",
+        "Tokens feed dual indexes ensuring keyword exact matches on Hindi legal/medical terms"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Dual-Modal Embedding Storage",
+      "items": [
+        "all-MiniLM-L6-v2 encodes 512-token text windows into 384-dimensional dense vectors",
+        "CLIP ViT-B-32 maps diagram crops and visual figures into 512-dimensional shared space",
+        "Both collections persist in ChromaDB partitioned by tenant_id"
+      ]
+    }
+  ]
+}

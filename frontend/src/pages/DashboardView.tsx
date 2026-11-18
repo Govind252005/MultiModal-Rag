@@ -13,6 +13,7 @@ import {
   AudioLines,
   FolderOpen,
   Plus,
+  Eye,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -37,6 +38,7 @@ export interface DashboardViewProps {
   onSelectSession: (id: string) => void
   onOpenUpload: () => void
   onNavigate: (view: AppView) => void
+  onPreviewDocument?: (filename: string) => void
 }
 
 function ModalityIcon({ modality }: { modality: Modality }) {
@@ -56,13 +58,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectSession,
   onOpenUpload,
   onNavigate,
+  onPreviewDocument,
 }) => {
   const safeFiles = files || []
   const safeSessions = sessions || []
   const isLocal = activeProvider?.mode === 'local'
-  const textChunks = health?.index?.text_items ?? 0
-  const imageChunks = health?.index?.image_items ?? 0
-  const totalChunks = textChunks + imageChunks
+  
+  // Calculate vector embedding stats strictly from the user's workspace documents
+  const calculatedTextChunks = safeFiles
+    .filter((f) => f.modality !== 'image')
+    .reduce((acc, f) => acc + (f.chunks || 0), 0)
+  const calculatedImageChunks = safeFiles
+    .filter((f) => f.modality === 'image')
+    .reduce((acc, f) => acc + (f.chunks || 0), 0)
+  const workspaceTotal = calculatedTextChunks + calculatedImageChunks
+
+  const totalChunks = safeFiles.length > 0 ? workspaceTotal : 0
+  const textChunks = safeFiles.length > 0 ? calculatedTextChunks : 0
+  const imageChunks = safeFiles.length > 0 ? calculatedImageChunks : 0
 
   return (
     <div className="p-6 sm:p-8 max-w-7xl mx-auto space-y-8">
@@ -102,7 +115,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {safeFiles.length}
               </h3>
               <p className="mt-1 text-[11px] text-surface-400">
-                Across active session library
+                Across workspace library
               </p>
             </div>
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950/60 dark:text-brand-400">
@@ -254,9 +267,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </p>
                       </div>
                     </div>
-                    <Badge variant="neutral" size="sm">
-                      Indexed
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      {onPreviewDocument && (
+                        <button
+                          type="button"
+                          onClick={() => onPreviewDocument(f.file)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-surface-600 dark:text-surface-300 hover:bg-surface-200 dark:hover:bg-surface-700 transition"
+                          title="Preview document"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          <span>Preview</span>
+                        </button>
+                      )}
+                      <Badge variant="neutral" size="sm">
+                        Indexed
+                      </Badge>
+                    </div>
                   </li>
                 ))}
               </ul>

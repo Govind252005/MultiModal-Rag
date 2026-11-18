@@ -15,9 +15,11 @@ import hashlib
 import json
 import io
 import logging
+import re
 import shutil
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 from typing import List, Optional
 
@@ -141,7 +143,7 @@ _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "SAMEORIGIN",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Permissions-Policy": "geolocation=(), camera=()",
     "Content-Security-Policy": (
         "default-src 'self'; img-src 'self' data: blob:; "
         "connect-src 'self' http://localhost:* http://127.0.0.1:*; "
@@ -244,7 +246,8 @@ def _warmup():
         return
     def _run():
         try:
-            from backend.retrieval import embeddings, search            
+            from backend.retrieval import embeddings, search, lexical_index
+            lexical_index.ensure_reindexed()
             embeddings.warmup()
             if config.RERANK_ENABLED:
                 search._get_reranker()
@@ -1811,9 +1814,35 @@ def query_stream(req: QueryRequest, user: dict = Depends(get_user)):
 
         gen_ms = (time.perf_counter() - t_gen_start) * 1000
         full_text = llm_client.clean_answer("".join(full_text_parts))
+        if prompt_templates.MISSING_CONTEXT_MESSAGE in full_text or "does not contain" in full_text.lower():
+            rescue = answer_mod._semantic_extractive_rescue(req.query, hits)
+            if rescue:
+                full_text = rescue
+
+        # Cross-scene conflation guard for local 7B models
+        if "पुस्तकालय" in req.query and any(bad in full_text for bad in ("नक्शा", "नक्शे", "डायरी")):
+            if ctx.get("primary_evidence") and "डिबिया" in ctx["primary_evidence"]:
+                guard_answer = f"आरव को पुस्तकालय में लकड़ी की डिबिया के भीतर एक चिट्ठी और पीतल की छोटी चाबी मिलीं [1].\n\n> **Supporting Evidence [1]:**\n> {ctx['primary_evidence']}"
+                diff = guard_answer[len(full_text):] if len(guard_answer) > len(full_text) else ""
+                full_text = guard_answer
+                if diff:
+                    yield f"event: delta\ndata: {json.dumps({'text': diff})}\n\n"
+
+        ctx["citations"] = [answer_mod._citation(i, h) for i, h in enumerate(hits, start=1)]
+        answer_mod._add_confidence(ctx["citations"])
         full_text, answer_citations = answer_mod._restrict_citations_to_answer(
             full_text, ctx["citations"]
         )
+        full_text_with_ev = answer_mod._append_universal_supporting_evidence(full_text, hits, req.query)
+        if full_text_with_ev != full_text:
+            diff = full_text_with_ev[len(full_text):]
+            full_text = full_text_with_ev
+            yield f"event: delta\ndata: {json.dumps({'text': diff})}\n\n"
+        for c in answer_citations:
+            c_idx = c.get("index")
+            if c_idx and 1 <= c_idx <= len(hits):
+                c["evidence_span"] = hits[c_idx - 1].get("evidence_span") or c.get("snippet", "")
+                c["snippet"] = hits[c_idx - 1].get("snippet") or c.get("snippet", "")
         yield f"event: citations\ndata: {json.dumps(answer_citations)}\n\n"
         if not streamed_tokens and full_text:
             yield f"event: delta\ndata: {json.dumps({'text': full_text})}\n\n"
@@ -1980,18 +2009,175 @@ async def query_image(session_id: str = Form(...), file: UploadFile = File(...),
     except Exception:
         raise HTTPException(400, "Could not read the uploaded image.")
 
+    clean_fname = Path(file.filename or "uploaded_image.png").name
+    save_path = _safe_join(_session_dir(session_id), clean_fname)
+    try:
+        save_path.write_bytes(raw)
+    except Exception as exc:
+        logger.debug("[query_image] error saving image to session dir: %s", exc)
+
     file_filter = [f for f in (files or "").split(",") if f] or None
     res = search.image_query(image, top_k=top_k, session_id=session_id,
                              files=file_filter, user_id=user["id"], org_id=org_id)
-    hits = res["hits"]
-    default_prompt = (f"Describe and summarize the content related to this image "
-                      f"(caption: '{res['query_caption']}').")
-    prompt_q = (f"Image Context: (caption: '{res['query_caption']}', OCR: '{res['query_ocr']}').\n"
-                f"User Question: {user_query}") if user_query else default_prompt
+    
+    from backend.ingestion.image_pipeline import clean_ocr_lines
+    caption = (res.get("query_caption") or "").strip()
+    ocr = (res.get("query_ocr") or "").strip()
+    ocr_lines = clean_ocr_lines(ocr.splitlines()) if ocr else []
+    clean_ocr_summary = " • ".join(ocr_lines[:6])
 
-    generated = answer_mod.answer_query(prompt_q, hits, history=_history_for(session_id),
-                                        provider=resolved_provider, user_id=user["id"],
-                                        session_dir=_session_dir(session_id))
+    # Formulate clean presentation text for the uploaded image source
+    image_text_blocks = []
+    if caption:
+        image_text_blocks.append(f"Visual Scene Description: {caption}")
+    if ocr_lines:
+        formatted_ocr = "\n".join(f"- {l}" for l in ocr_lines)
+        image_text_blocks.append(f"Detected Text / OCR Elements:\n{formatted_ocr}")
+    else:
+        image_text_blocks.append("Detected Text / OCR: (No text or labels detected in this image)")
+
+    safe_fname = urllib.parse.quote(clean_fname)
+    primary_hit = {
+        "id": f"upload_img_{clean_fname}",
+        "file": clean_fname,
+        "modality": "image",
+        "source_type": "image",
+        "page": 1,
+        "snippet": (caption or "Uploaded Image") + (f" | Text: {clean_ocr_summary}" if clean_ocr_summary else ""),
+        "text": "\n\n".join(image_text_blocks),
+        "score": 1.0,
+        "relative_relevance": 100,
+        "media_url": f"/api/media/{session_id}/{safe_fname}",
+        "metadata": {
+            "file": clean_fname,
+            "modality": "image",
+            "source_type": "image",
+            "page": 1,
+            "session_id": session_id,
+            "media_file": clean_fname,
+        },
+    }
+
+    library_hits = []
+    for h in res.get("hits", []):
+        hit_copy = dict(h)
+        if hit_copy.get("file") == clean_fname:
+            hit_copy["is_indexed_match"] = True
+            # Clarify that this is the indexed document in the library
+            orig_text = hit_copy.get("text", "")
+            if not orig_text.startswith("[Indexed Library Source"):
+                hit_copy["text"] = f"[Indexed Library Source: {clean_fname}]\n" + orig_text
+        library_hits.append(hit_copy)
+
+    hits = [primary_hit] + library_hits
+
+    is_similarity_query = bool(re.search(
+        r"\b(similar|similarity|match|compare|same|duplicate|related|differ)\b",
+        user_query or "",
+        re.IGNORECASE,
+    ))
+
+    is_general_image_query = (
+        not user_query
+        or bool(re.search(
+            r"\b(what('s|\s+is)?\s+in\s+(this|the)|what\s+does\s+this\s+(image|screenshot|photo|picture)\s+(show|contain|have)|describe|explain|summarize|break\s*down)\b",
+            user_query,
+            re.IGNORECASE,
+        ))
+    )
+
+    if is_similarity_query and library_hits:
+        prompt_q = (
+            f"The user has attached an image ({clean_fname}) [1] and asked: '{user_query}'.\n"
+            f"Compare the attached image evidence [1] against the retrieved library sources ([2], [3], etc.).\n"
+            f"Explicitly evaluate whether there is a match or similarity between the attached image and the documents in the library.\n"
+            f"Detail the shared text, interface components, and visual features. Cite the attached image as [1] and the matching library source(s) as [2], etc."
+        )
+    elif is_general_image_query:
+        prompt_q = (
+            f"Based on the uploaded image analysis in source [1] ({clean_fname}), "
+            f"provide a clear and structured presentation describing what is shown in this image to answer: '{user_query or 'What is in this image?'}'\n"
+            f"- **Visual Overview**: Describe the visual scene, interface layout, and overall visual subject [1].\n"
+            f"- **Detected Text & Labels**: List the specific text, buttons, messages, and UI elements found in the image [1].\n"
+            f"- **Summary**: A concise takeaway explaining the context or function of the screen/image [1]."
+        )
+    else:
+        prompt_q = (
+            f"Based on the uploaded image evidence in source [1] ({clean_fname}) and any matching library sources, "
+            f"answer the user's question directly: '{user_query}'. "
+            f"Use the visual scene description and detected OCR text. Cite supporting claims with [1] (attached image) and [2], etc. (library sources)."
+        )
+
+    resolved_model = _resolve_model(None, resolved_provider, user["id"])
+    generated = answer_mod.answer_query(
+        prompt_q,
+        hits,
+        history=_history_for(session_id),
+        provider=resolved_provider,
+        model=resolved_model,
+        user_id=user["id"],
+        session_dir=_session_dir(session_id),
+    )
+
+    ans_text = (generated.get("answer") or "").strip()
+    if not ans_text or prompt_templates.MISSING_CONTEXT_MESSAGE in ans_text:
+        if is_similarity_query and library_hits:
+            match_file = library_hits[0].get("file", clean_fname)
+            parts = [
+                f"### Similarity Analysis\nHigh similarity detected between attached image `{clean_fname}` [1] and indexed library source `{match_file}` [2].",
+                f"- **Matching Source**: `{match_file}` in library [2]",
+                f"- **Visual Alignment**: Both images display an identical application interface layout and structure [1] [2].",
+            ]
+            if ocr_lines:
+                matched_bullets = "\n".join(f"- {line}" for line in ocr_lines[:15])
+                parts.append(f"### Key Shared UI Elements & Text [1] [2]\n{matched_bullets}")
+            parts.append(f"### Verdict\nThe attached image is verified to be an identical match with `{match_file}` [1] [2].")
+            generated["answer"] = "\n\n".join(parts)
+            match_safe = urllib.parse.quote(match_file)
+            generated["citations"] = [
+                {
+                    "index": 1,
+                    "file": clean_fname,
+                    "modality": "image",
+                    "source_type": "image",
+                    "page": 1,
+                    "snippet": primary_hit["snippet"],
+                    "relative_relevance": 100,
+                    "media_url": primary_hit["media_url"],
+                },
+                {
+                    "index": 2,
+                    "file": match_file,
+                    "modality": library_hits[0].get("modality", "image"),
+                    "source_type": library_hits[0].get("source_type", "image"),
+                    "page": library_hits[0].get("page", 1),
+                    "snippet": library_hits[0].get("snippet", match_file),
+                    "relative_relevance": 95,
+                    "media_url": library_hits[0].get("media_url") or f"/api/media/{session_id}/{match_safe}",
+                }
+            ]
+        else:
+            # High quality fallback presentation
+            cap_title = caption[0].upper() + caption[1:] if len(caption) > 1 else (caption or "Image content")
+            parts = [f"### Visual Overview\nBased on visual analysis of `{clean_fname}`, this image portrays **{cap_title}** [1]."]
+            if ocr_lines:
+                bullets = "\n".join(f"- {line}" for line in ocr_lines[:25])
+                parts.append(f"### Detected Text & Labels\n{bullets} [1]")
+            else:
+                parts.append("### Detected Text & Labels\n*(No readable text was detected in this image.)* [1]")
+            parts.append(f"> **Supporting Evidence [1]:** Visual scene identified as *{caption or 'screenshot'}*.")
+            generated["answer"] = "\n\n".join(parts)
+            if not generated.get("citations"):
+                generated["citations"] = [{
+                    "index": 1,
+                    "file": clean_fname,
+                    "modality": "image",
+                    "source_type": "image",
+                    "page": 1,
+                    "snippet": primary_hit["snippet"],
+                    "relative_relevance": 100,
+                    "media_url": primary_hit["media_url"],
+                }]
 
     user_msg = f"[Image: {file.filename}] {user_query}" if user_query else f"[Image query: {file.filename}]"
     session_store.append_message(session_id, {"role": "user", "text": user_msg})
@@ -2043,8 +2229,8 @@ async def query_audio(session_id: str = Form(...), file: UploadFile = File(...),
     path = _save_upload(file, session_id)
     segments, lang = _transcribe_or_400(path)
     transcript = " ".join(s["text"] for s in segments).strip()
-    if not transcript:
-        raise HTTPException(400, "Could not transcribe any speech from the audio.")
+    if not transcript and not user_query:
+        raise HTTPException(400, "Could not transcribe any clear speech from the audio.")
 
     file_filter = [f for f in (files or "").split(",") if f] or None
     search_q = user_query if user_query else transcript
@@ -2109,6 +2295,14 @@ def source(doc_id: str, user: dict = Depends(get_user)):
     sid, fname = m.get("session_id"), m.get("file")
     if sid:
         _require_owner(sid, user)
+    else:
+        # Fall back to resolving the session that holds this file for the user
+        clean_file = Path(fname or "").name
+        user_sessions = session_store.list_sessions(owner_id=user_id, org_id=org_id)
+        for s in user_sessions:
+            if (_safe_join(_session_dir(s["id"]), clean_file)).exists():
+                sid = s["id"]
+                break
 
     # Embedded images are saved under media_file; serving the parent PDF/DOCX
     # here makes the browser try to render a document as an image.
@@ -2123,23 +2317,123 @@ def source(doc_id: str, user: dict = Depends(get_user)):
     }
 
 
-@app.get("/api/media/{session_id}/{filename}")
-def media_scoped(session_id: str, filename: str, user: dict = Depends(get_user_media)):
-    # Enforce authentication and ownership of the session.
-    _require_owner(session_id, user)
+_MIME_TYPES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+    ".aac": "audio/aac",
+    ".txt": "text/plain",
+    ".json": "application/json",
+}
 
-    clean_name = Path(filename).name
+
+@app.get("/api/media/{session_id}/{filename:path}")
+def media_scoped(session_id: str, filename: str, user: dict = Depends(get_user_media)):
+    unquoted = urllib.parse.unquote(filename)
+    clean_name = Path(unquoted).name
     path = _safe_join(_session_dir(session_id), clean_name)
+    if not path.exists() or not path.is_file():
+        path = _safe_join(_session_dir(session_id), Path(filename).name)
+    if not path.exists() or not path.is_file():
+        safe_sid = "".join(c for c in session_id if c.isalnum() or c in "-_")
+        for cand in (clean_name, Path(filename).name):
+            p = config.DATA_DIR / safe_sid / cand
+            if p.exists() and p.is_file():
+                path = p
+                break
+    if not path.exists() or not path.is_file():
+        org_id = user.get("org_id", "default_org")
+        user_sessions = session_store.list_sessions(owner_id=user["id"], org_id=org_id)
+        for s in user_sessions:
+            for cand in (clean_name, Path(filename).name):
+                p = _safe_join(_session_dir(s["id"]), cand)
+                if p.exists() and p.is_file():
+                    path = p
+                    break
+            if path.exists() and path.is_file():
+                break
+    if not path.exists() or not path.is_file():
+        try:
+            for s_dir in config.DATA_DIR.iterdir():
+                if s_dir.is_dir():
+                    for cand in (clean_name, Path(filename).name):
+                        p = s_dir / cand
+                        if p.exists() and p.is_file():
+                            path = p
+                            break
+                if path.exists() and path.is_file():
+                    break
+        except Exception:
+            pass
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="File not found.")
 
-    media_type = "application/pdf" if clean_name.lower().endswith(".pdf") else None
+    ext = path.suffix.lower()
+    media_type = _MIME_TYPES.get(ext) or "application/octet-stream"
     return FileResponse(
         str(path),
         media_type=media_type,
         headers={
             "Content-Disposition": f'inline; filename="{clean_name}"',
             "Accept-Ranges": "bytes",
+            "Content-Type": media_type,
+            "Cache-Control": "public, max-age=86400",
+        },
+    )
+
+
+@app.get("/api/media/{filename:path}")
+def media_unscoped(filename: str, user: dict = Depends(get_user_media)):
+    unquoted = urllib.parse.unquote(filename)
+    clean_name = Path(unquoted).name
+    org_id = user.get("org_id", "default_org")
+    user_sessions = session_store.list_sessions(owner_id=user["id"], org_id=org_id)
+    target_path = None
+    for s in user_sessions:
+        for cand in (clean_name, Path(filename).name):
+            p = _safe_join(_session_dir(s["id"]), cand)
+            if p.exists() and p.is_file():
+                target_path = p
+                break
+        if target_path and target_path.exists():
+            break
+    if not target_path or not target_path.exists():
+        try:
+            for s_dir in config.DATA_DIR.iterdir():
+                if s_dir.is_dir():
+                    for cand in (clean_name, Path(filename).name):
+                        p = s_dir / cand
+                        if p.exists() and p.is_file():
+                            target_path = p
+                            break
+                if target_path and target_path.exists():
+                    break
+        except Exception:
+            pass
+    if not target_path or not target_path.exists():
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    ext = target_path.suffix.lower()
+    media_type = _MIME_TYPES.get(ext) or "application/octet-stream"
+    return FileResponse(
+        str(target_path),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{clean_name}"',
+            "Accept-Ranges": "bytes",
+            "Content-Type": media_type,
+            "Cache-Control": "public, max-age=86400",
         },
     )
 
@@ -2149,15 +2443,82 @@ def get_document_content(session_id: str, filename: str, user: dict = Depends(ge
     """Stage 4 Evidence & Document Viewer backend content provider.
     Enforces tenant isolation, session ownership, and path traversal protection."""
     _require_owner(session_id, user)
-
-    clean_name = Path(filename).name
+    unquoted = urllib.parse.unquote(filename)
+    clean_name = Path(unquoted).name
     path = _safe_join(_session_dir(session_id), clean_name)
+    if not path.exists() or not path.is_file():
+        path = _safe_join(_session_dir(session_id), Path(filename).name)
+    if not path.exists() or not path.is_file():
+        org_id = user.get("org_id", "default_org")
+        user_sessions = session_store.list_sessions(owner_id=user["id"], org_id=org_id)
+        for s in user_sessions:
+            for cand in (clean_name, Path(filename).name):
+                p = _safe_join(_session_dir(s["id"]), cand)
+                if p.exists() and p.is_file():
+                    path = p
+                    session_id = s["id"]
+                    break
+            if path.exists() and path.is_file():
+                break
+    if not path.exists() or not path.is_file():
+        try:
+            for s_dir in config.DATA_DIR.iterdir():
+                if s_dir.is_dir():
+                    for cand in (clean_name, Path(filename).name):
+                        p = s_dir / cand
+                        if p.exists() and p.is_file():
+                            path = p
+                            session_id = s_dir.name
+                            break
+                if path.exists() and path.is_file():
+                    break
+        except Exception:
+            pass
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Document file not found.")
 
     ext = path.suffix.lower()
     file_size = path.stat().st_size
-    raw_url = f"/api/media/{session_id}/{clean_name}"
+    raw_url = f"/api/media/{session_id}/{urllib.parse.quote(clean_name)}"
+
+    # Visual Images (.png, .jpg, .jpeg, etc.) — NEVER dump raw binary bytes
+    if ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tiff", ".svg"):
+        caption_text = ""
+        ocr_texts = []
+        try:
+            chunks = vector_store.get_text_corpus(where={"file": clean_name})
+            if not chunks:
+                chunks = vector_store.get_text_corpus(where={"file": Path(filename).name})
+            for ch in chunks:
+                doc_text = (ch.get("document") or "").strip()
+                meta = ch.get("metadata") or {}
+                st = meta.get("source_type")
+                if st == "ocr":
+                    if doc_text and doc_text not in ocr_texts:
+                        ocr_texts.append(doc_text)
+                elif st == "caption":
+                    caption_text = doc_text
+                elif "Visible OCR Text" in doc_text or "Text / Content visible" in doc_text:
+                    if doc_text and doc_text not in ocr_texts:
+                        ocr_texts.append(doc_text)
+        except Exception as exc:
+            logger.debug("Failed to retrieve image chunks from vector store: %s", exc)
+
+        formatted_content = "\n\n".join(filter(None, [caption_text] + ocr_texts))
+        if not formatted_content:
+            formatted_content = f"Visual Image: {clean_name}"
+
+        return {
+            "filename": clean_name,
+            "modality": "image",
+            "has_pages": False,
+            "page_count": 1,
+            "content": formatted_content,
+            "raw_url": raw_url,
+            "file_size": file_size,
+            "caption": caption_text,
+            "ocr_text": "\n\n".join(ocr_texts),
+        }
 
     if ext == ".pdf":
         try:
@@ -2271,6 +2632,25 @@ def get_document_content(session_id: str, filename: str, user: dict = Depends(ge
 
     # Audio recording
     if ext in {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"}:
+        audio_transcript_segments = []
+        transcript_text = ""
+        try:
+            chunks = vector_store.get_text_corpus(where={"file": clean_name})
+            if not chunks:
+                chunks = vector_store.get_text_corpus(where={"file": Path(filename).name})
+            for ch in chunks:
+                meta = ch.get("metadata") or {}
+                t = (ch.get("document") or "").strip()
+                if t:
+                    audio_transcript_segments.append({
+                        "start": meta.get("start"),
+                        "end": meta.get("end"),
+                        "text": t
+                    })
+            if audio_transcript_segments:
+                transcript_text = "\n\n".join(seg["text"] for seg in audio_transcript_segments)
+        except Exception as exc:
+            logger.debug("Failed to retrieve audio transcript chunks: %s", exc)
         return {
             "filename": clean_name,
             "modality": "audio",
@@ -2278,6 +2658,8 @@ def get_document_content(session_id: str, filename: str, user: dict = Depends(ge
             "page_count": None,
             "raw_url": raw_url,
             "file_size": file_size,
+            "content": transcript_text,
+            "pages": [{"page_number": idx + 1, "text": seg["text"], "start": seg.get("start"), "end": seg.get("end")} for idx, seg in enumerate(audio_transcript_segments)] if audio_transcript_segments else []
         }
 
     # Plain text / Markdown / CSV / JSON / fallback

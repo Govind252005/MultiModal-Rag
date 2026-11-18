@@ -16,9 +16,13 @@ import {
   CheckCircle2,
   Sparkles,
   Music,
+  Image as ImageIcon,
+  Copy,
+  ExternalLink,
 } from 'lucide-react'
 import type { Citation, DocumentContentResponse } from '../types'
 import { getDocumentContent, getToken } from '../api'
+import AuthImage from './AuthImage'
 
 export interface DocumentViewerProps {
   sessionId: string
@@ -31,6 +35,7 @@ export interface DocumentViewerProps {
   onToggleSplit?: () => void
   activeQuery?: string
   activeAnswer?: string
+  onPopOutPreview?: (filename: string, sessionId?: string, page?: number) => void
 }
 
 function escapeRegex(s: string): string {
@@ -41,8 +46,180 @@ function normalizeChars(s: string): string {
   return s
     .replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-')
     .replace(/[\u00A0\u2002\u2003\u2009\u202F]/g, ' ')
-    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u2018\u2019\u02BC`]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
+}
+
+function normalizeString(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-')
+    .replace(/[\u00A0\u2002\u2003\u2009\u202F]/g, ' ')
+    .replace(/[\u2018\u2019\u02BC`]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+interface SpanOffset {
+  start: number
+  end: number
+  text: string
+  norm: string
+  joinedStart: number
+  joinedEnd: number
+}
+
+function findExactHighlightRange(
+  pageText: string,
+  targetEvidence: string,
+  boldEntity?: string
+): { start: number; end: number } | null {
+  const normTarget = normalizeString(targetEvidence)
+  if (!normTarget || normTarget.length < 5) return null
+
+  // 1. Build contiguous span map from pageText
+  const lineRegex = /[^\r\n]+(?:\r?\n|$)/g
+  const spans: SpanOffset[] = []
+  let m: RegExpExecArray | null
+  let runningJoined = 0
+  const joinedParts: string[] = []
+
+  while ((m = lineRegex.exec(pageText)) !== null) {
+    const rawLine = m[0]
+    const start = m.index
+    const trimmedLine = rawLine.replace(/[\r\n]+$/, '')
+    if (trimmedLine.trim().length > 0) {
+      const normLine = normalizeString(trimmedLine)
+      const joinedStart = runningJoined
+      const joinedEnd = joinedStart + normLine.length
+      spans.push({
+        start,
+        end: start + trimmedLine.length,
+        text: trimmedLine,
+        norm: normLine,
+        joinedStart,
+        joinedEnd,
+      })
+      joinedParts.push(normLine)
+      runningJoined = joinedEnd + 1 // space separator
+    }
+    if (m.index === lineRegex.lastIndex) lineRegex.lastIndex++
+  }
+
+  if (spans.length === 0) return null
+  const joinedPageText = joinedParts.join(' ')
+
+  function mapJoinedToPage(matchStart: number, matchEnd: number): { start: number; end: number } | null {
+    let firstSpanIdx = -1
+    let lastSpanIdx = -1
+    for (let i = 0; i < spans.length; i++) {
+      const sp = spans[i]
+      if (sp.joinedEnd > matchStart && sp.joinedStart < matchEnd) {
+        if (firstSpanIdx === -1) firstSpanIdx = i
+        lastSpanIdx = i
+      }
+    }
+    if (firstSpanIdx !== -1 && lastSpanIdx !== -1) {
+      return {
+        start: spans[firstSpanIdx].start,
+        end: spans[lastSpanIdx].end,
+      }
+    }
+    return null
+  }
+
+  // Tier 1: Exact Contiguous Match in joinedPageText
+  const exactIdx = joinedPageText.indexOf(normTarget)
+  if (exactIdx >= 0) {
+    const range = mapJoinedToPage(exactIdx, exactIdx + normTarget.length)
+    if (range) return range
+  }
+
+  // Check individual sentences if target is multi-sentence
+  const targetSentences = normTarget.split(/(?<=[.!?।॥])\s+/).filter((s) => s.length >= 10)
+  for (const sent of targetSentences) {
+    const sIdx = joinedPageText.indexOf(sent)
+    if (sIdx >= 0) {
+      const range = mapJoinedToPage(sIdx, sIdx + sent.length)
+      if (range) return range
+    }
+  }
+
+  // Tier 2: Anchor Phrase Expansion (sliding 5-word or 4-word window)
+  const targetWords = normTarget.split(/\s+/).filter(Boolean)
+  let longestAnchor = ''
+  let longestAnchorIdx = -1
+
+  for (const winLen of [6, 5, 4, 3]) {
+    if (targetWords.length >= winLen && !longestAnchor) {
+      for (let i = 0; i <= targetWords.length - winLen; i++) {
+        const anchor = targetWords.slice(i, i + winLen).join(' ')
+        const pos = joinedPageText.indexOf(anchor)
+        if (pos >= 0) {
+          longestAnchor = anchor
+          longestAnchorIdx = pos
+          break
+        }
+      }
+    }
+  }
+
+  if (longestAnchor && longestAnchorIdx >= 0) {
+    let leftBound = Math.max(
+      joinedPageText.lastIndexOf('.', longestAnchorIdx),
+      joinedPageText.lastIndexOf('!', longestAnchorIdx),
+      joinedPageText.lastIndexOf('?', longestAnchorIdx)
+    )
+    leftBound = leftBound === -1 ? 0 : leftBound + 1
+
+    let rightDot = joinedPageText.indexOf('.', longestAnchorIdx + longestAnchor.length)
+    let rightExcl = joinedPageText.indexOf('!', longestAnchorIdx + longestAnchor.length)
+    let rightQuest = joinedPageText.indexOf('?', longestAnchorIdx + longestAnchor.length)
+    const rightCandidates = [rightDot, rightExcl, rightQuest].filter((idx) => idx !== -1)
+    const rightBound = rightCandidates.length > 0 ? Math.min(...rightCandidates) + 1 : joinedPageText.length
+
+    const range = mapJoinedToPage(leftBound, rightBound)
+    if (range) return range
+  }
+
+  // Tier 3: Span-Window Fallback (1-4 span windows scored by Token Jaccard + LCS)
+  const targetTokens = extractSignificantTokens(normTarget)
+  if (targetTokens.length > 0) {
+    let bestScore = -1
+    let bestSpanRange: { start: number; end: number } | null = null
+
+    for (let i = 0; i < spans.length; i++) {
+      for (let k = 1; k <= 4 && i + k <= spans.length; k++) {
+        const winJoined = spans.slice(i, i + k).map((s) => s.norm).join(' ')
+        const winTokens = extractSignificantTokens(winJoined)
+        if (winTokens.length === 0) continue
+
+        let overlap = 0
+        for (const tok of targetTokens) {
+          if (winJoined.includes(tok)) overlap++
+        }
+        const recall = overlap / targetTokens.length
+        const precision = overlap / winTokens.length
+        let score = recall * 60.0 + precision * 25.0
+
+        if (boldEntity && winJoined.includes(normalizeString(boldEntity))) {
+          score += 40.0
+        }
+
+        if (recall >= 0.65 && score > bestScore) {
+          bestScore = score
+          bestSpanRange = {
+            start: spans[i].start,
+            end: spans[i + k - 1].end,
+          }
+        }
+      }
+    }
+    if (bestSpanRange) return bestSpanRange
+  }
+
+  return null
 }
 
 function locatePhraseInText(pageText: string, targetPhrase: string): { start: number; end: number } | null {
@@ -69,6 +246,85 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
     return { start: normExact, end: normExact + clean.length }
   }
 
+  // 3.5. Multi-line code block or passage span matching (anchored by start & end lines)
+  const normCleanText = clean
+    .replace(/^```[a-zA-Z0-9+]*\s*/, '')
+    .replace(/```$/, '')
+    .replace(/[\u200b\u200c\u200d\ufeff\u2060\xad]/g, '')
+    .trim()
+  const rawLines = normCleanText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length >= 3)
+  if (rawLines.length >= 2) {
+    const firstLine = rawLines[0]
+    const lastLine = rawLines[rawLines.length - 1] === '}' && rawLines.length > 2
+      ? rawLines[rawLines.length - 2]
+      : rawLines[rawLines.length - 1]
+
+    const firstLoc = locatePhraseInText(pageText, firstLine)
+    if (firstLoc) {
+      // Check if there is a program/code header immediately before firstLoc (e.g. "C++ Program: ...", "Implementation", "C++ Demo: ...")
+      let candidateStart = firstLoc.start
+      const textBefore = pageText.slice(0, firstLoc.start)
+      const headerMatch = textBefore.match(/(?:(?:C\+\+|C|Python|Java|SQL)?\s*(?:Program|Demo|Implementation|Script|Baseline|Modified\s+Program|Version\s+\d+)[^\r\n]*)\s*$/i)
+      if (headerMatch && headerMatch[0]) {
+        const headerOffset = textBefore.lastIndexOf(headerMatch[0].trim())
+        if (headerOffset >= 0 && firstLoc.start - headerOffset < 150) {
+          candidateStart = headerOffset
+        }
+      }
+
+      const restPage = pageText.slice(firstLoc.start)
+      const lastLoc = locatePhraseInText(restPage, lastLine)
+      if (lastLoc && lastLoc.end > 0) {
+        let candidateEnd = firstLoc.start + lastLoc.end
+        // If code has a closing brace '}' after lastLine, include it and stop cleanly
+        const trailingSlice = pageText.slice(candidateEnd, candidateEnd + 40)
+        const braceMatch = trailingSlice.match(/^[\s\r\n]*\}/)
+        if (braceMatch) {
+          candidateEnd += braceMatch[0].length
+        }
+
+        const targetTokens = extractSignificantTokens(normCleanText)
+        if (targetTokens.length > 0) {
+          const sliceText = pageText.slice(candidateStart, candidateEnd).toLowerCase()
+          let matchesCount = 0
+          for (const tok of targetTokens) {
+            if (sliceText.includes(tok)) matchesCount++
+          }
+          if (matchesCount / targetTokens.length >= 0.35) {
+            // Complete Code Block Highlighting: Balanced Brace Tracking across sibling functions
+            const isCodeContent = /(?:#include|using\s+namespace|int\s+main|void\s+main|def\s+\w+|class\s+\w+|classify|cout\s*<<)/i.test(normCleanText) ||
+                                  /(?:#include|using\s+namespace|int\s+main|classify)/i.test(pageText.slice(candidateStart, candidateStart + 300))
+            if (isCodeContent) {
+              let depth = 0
+              let foundOpen = false
+              let codeEnd = candidateStart
+              for (let idx = candidateStart; idx < pageText.length; idx++) {
+                const ch = pageText[idx]
+                if (ch === '{') {
+                  depth++
+                  foundOpen = true
+                } else if (ch === '}') {
+                  depth--
+                  if (foundOpen && depth === 0) {
+                    codeEnd = idx + 1
+                    const lookAhead = pageText.slice(idx + 1, idx + 140)
+                    if (!/(?:int\s+main|void\s+main|string\s+\w+|bool\s+\w+|double\s+\w+|long\s+long\s+\w+)/i.test(lookAhead)) {
+                      if (codeEnd >= candidateEnd) break
+                    }
+                  }
+                }
+              }
+              if (codeEnd > candidateEnd) {
+                candidateEnd = codeEnd
+              }
+            }
+            return { start: candidateStart, end: candidateEnd }
+          }
+        }
+      }
+    }
+  }
+
   // 4. Multi-word regex match across newlines/whitespace with strict token boundaries
   const words = normClean.split(/\s+/).filter(Boolean)
   if (words.length === 0) return null
@@ -88,7 +344,7 @@ function locatePhraseInText(pageText: string, targetPhrase: string): { start: nu
     try {
       // Require word boundaries or whitespace so we never cut words (e.g. 'in' into 'i')
       const rx = new RegExp(`(^|\\s|\\b)(${pattern})($|\\s|\\b)`, 'iu')
-      const match = rx.exec(pageText)
+      const match = rx.exec(normPage) || rx.exec(pageText)
       if (match && match[2]) {
         const offset = match.index + match[0].indexOf(match[2])
         return { start: offset, end: offset + match[2].length }
@@ -132,8 +388,63 @@ function getCandidatePhrases(
   const candidatePool = [pageText || '', fullText].filter(Boolean)
   const candidates: string[] = []
 
-  // 1. Universal Answer-Overlap & Exact Span Alignment (Zero Hardcoded Question Regexes)
+  const qLower = (activeQuery || '').toLowerCase()
+  const aLower = (activeAnswer || '').toLowerCase()
+
+  const isSupervisorIntent = /(?:supervis(?:ion|or|ed)|guided|mentor|faculty|instructor|under\s+the\s+supervision|किसकी\s+देखरेख|देखरेख|पर्यवेक्षक|मार्गदर्शक|सुपरवाइजर|निर्देशन|अधीन|kiske\s+supervision|kiski\s+dekhrekh)/i.test(qLower) ||
+    /(?:under\s+the\s+supervision|supervised\s+by|faculty\s+supervisor)/i.test(aLower)
+
+  const isSubmitterIntent = !isSupervisorIntent && (/(?:submitted\s+by|who\s+submitted|submitted|author|student|prepared\s+by|created\s+by|who\s+wrote|who\s+authored|name\s+of\s+student|roll\s+no|enrollment|किसने\s+जमा|जमा\s+किया|जमाकर्ता|किसका|किसने\s+बनाया|किसने\s+लिखा|विद्यार्थी|छात्र|kisne\s+submit|kiska\s+hai)/i.test(qLower) ||
+    /(?:submitted\s+by|prepared\s+by|presented\s+by|authored\s+by)/i.test(aLower))
+
+  // 0. Extract verbatim text inside the > **Supporting Evidence [k]:** blockquote
   if (activeAnswer) {
+    const evBlockMatch = activeAnswer.match(/>\s*(?:\*\*)?Supporting\s+Evidence(?:\s*\[\d+\])?:?(?:\*\*)?\s*\n*>*\s*([\s\S]*?)(?=\n\s*\n\s*[^>]|$)/i)
+    if (evBlockMatch && evBlockMatch[1]) {
+      const cleanEv = evBlockMatch[1]
+        .replace(/^>\s*/gm, '')
+        .replace(/\*\*/g, '')
+        .trim()
+      if (cleanEv.length >= 5 && !candidates.includes(cleanEv)) {
+        candidates.unshift(cleanEv)
+        const evLines = cleanEv.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length >= 4)
+        for (const el of evLines) {
+          if (!candidates.includes(el)) candidates.push(el)
+        }
+      }
+    }
+  }
+
+  // 0.1 Check citation.evidence_span or citation.snippet
+  const explicitSpan = (cit as any).evidence_span || cit.snippet
+  if (explicitSpan && explicitSpan.trim().length >= 5) {
+    const cleanSpan = explicitSpan.replace(/^\[(?:Section|Table|Doc)\s+Context:[^\]]*\]\s*/i, '').trim()
+    if (!candidates.includes(cleanSpan)) {
+      candidates.push(cleanSpan)
+    }
+  }
+
+  // 0.2 Extract any bold text from activeAnswer (e.g. **KEY_ENTITY**)
+  if (activeAnswer) {
+    const boldMatches = Array.from(activeAnswer.matchAll(/\*\*([^*]+)\*\*/g))
+      .map((m) => m[1].trim())
+      .filter((b) => b.length >= 3 && !/^(?:supporting\s+evidence|aim|experiment|index)\b/i.test(b))
+    for (const b of boldMatches) {
+      if (!candidates.includes(b)) {
+        candidates.push(b)
+      }
+    }
+  }
+
+  // 1. Universal Answer-Overlap & Exact Span Alignment (Zero Hardcoded Person Names)
+  if (activeAnswer) {
+    // 1.0 Extract any verbatim fenced code blocks from activeAnswer as top priority candidates
+    const codeBlockMatch = activeAnswer.match(/```(?:[a-zA-Z0-9+]+)?\s*([\s\S]*?)```/)
+    if (codeBlockMatch && codeBlockMatch[1].trim().length >= 10) {
+      const extractedCode = codeBlockMatch[1].trim()
+      if (!candidates.includes(extractedCode)) candidates.unshift(extractedCode)
+    }
+
     const cleanAnswer = activeAnswer
       .replace(/(?:\[|【|［|\u3010|\uFF3B)\s*\d+\s*(?:\]|】|］|\u3011|\uFF3D)/g, '')
       .replace(/^\[LLM unavailable[^\]]*\]/i, '')
@@ -150,7 +461,6 @@ function getCandidatePhrases(
         if (!candidates.includes(line)) candidates.push(line)
       }
 
-      // Universal lexical & n-gram overlap between cleanAnswer (+ query) and sentences/lines
       const ansTokens = extractSignificantTokens(cleanAnswer)
       const qTokens = extractSignificantTokens(activeQuery || '')
       const poolSentences: string[] = []
@@ -179,6 +489,22 @@ function getCandidatePhrases(
         for (const tok of ansTokens) {
           if (/^\d+$/.test(tok) && sLower.includes(tok)) score += 5
         }
+        // Universal role-aware boost without hardcoded names
+        if (isSupervisorIntent) {
+          if (/under\s+the\s+supervision|supervised\s+by|faculty\s+supervisor|supervisor|guided\s+by/i.test(sentence)) {
+            score += 25
+          }
+          if (/^submitted\s+by/i.test(sentence.trim())) {
+            score -= 30
+          }
+        } else if (isSubmitterIntent) {
+          if (/^submitted\s+by|author|student\s+name|roll\s+no/i.test(sentence.trim())) {
+            score += 25
+          }
+          if (/under\s+the\s+supervision/i.test(sentence)) {
+            score -= 30
+          }
+        }
         return { sentence, score }
       })
 
@@ -193,16 +519,62 @@ function getCandidatePhrases(
 
   // 2. Structured Multi-line Entity patterns (fallback)
   for (const src of candidatePool) {
-    const supMatch = src.match(/(?:under\s+the\s+supervision\s+of|supervised\s+by|supervisor|guided\s+by|mentor)[:\s]*\n*([^\r\n]+)/i)
-    if (supMatch && supMatch[1]) {
-      const name = supMatch[1].trim()
-      if (name.length >= 3 && !candidates.includes(name)) candidates.push(name)
-    }
-
-    const submittedMulti = src.match(/submitted\s+by[:\s]*\n*([^\r\n]+)/i)
-    if (submittedMulti && submittedMulti[1]) {
-      const authorName = submittedMulti[1].trim()
-      if (authorName.length >= 3 && !candidates.includes(authorName)) candidates.push(authorName)
+    if (isSupervisorIntent) {
+      const supMatch = src.match(/(?:under\s+the\s+supervision\s+of|supervised\s+by|supervisor|guided\s+by|mentor|faculty\s+supervisor)[:\s]*\n*([^\r\n]+)/i)
+      if (supMatch && supMatch[0]) {
+        const fullBlock = supMatch[0].trim()
+        if (fullBlock.length >= 6 && !candidates.includes(fullBlock)) {
+          candidates.unshift(fullBlock)
+        }
+        if (supMatch[1] && !candidates.includes(supMatch[1].trim())) {
+          candidates.push(supMatch[1].trim())
+        }
+      }
+    } else if (isSubmitterIntent) {
+      // Strictly match "Submitted by" (never bare "Submitted in..."), "Prepared by", "Presented by", "Author:", etc.
+      // And capture the ENTIRE block including prefix AND author line/enrollment:
+      const submittedBlockMatch = src.match(/(?:submitted\s+by|prepared\s+by|presented\s+by|authored\s+by|author[:\s]|student\s+name[:\s])[:\s]*\n*([^\r\n]+(?:\r?\n\s*\([0-9A-Za-z_-]+\))?)/i)
+      if (submittedBlockMatch && submittedBlockMatch[0]) {
+        const fullBlock = submittedBlockMatch[0].trim()
+        if (fullBlock.length >= 6 && !candidates.includes(fullBlock)) {
+          candidates.unshift(fullBlock)
+        }
+        if (submittedBlockMatch[1]) {
+          const authorLine = submittedBlockMatch[1].trim()
+          if (!candidates.includes(authorLine)) candidates.push(authorLine)
+          const nameOnly = authorLine.replace(/\s*\([^\)]*\)/g, '').trim()
+          if (nameOnly && nameOnly !== authorLine && nameOnly.length >= 3 && !candidates.includes(nameOnly)) {
+            candidates.push(nameOnly)
+          }
+        }
+      }
+      const indexNameMatch = src.match(/(?:Index\s+Name|Student\s+Name|Name)[:\s]*([^\r\n]+?)(?:\s+Roll\s+No\.?[:\s]*(\d+))?(?:\s+Class|$)/i)
+      if (indexNameMatch && indexNameMatch[0]) {
+        const fullIndexBlock = indexNameMatch[0].trim()
+        if (!candidates.includes(fullIndexBlock)) candidates.unshift(fullIndexBlock)
+        if (indexNameMatch[1]) {
+          const iName = indexNameMatch[1].trim()
+          const iRoll = indexNameMatch[2] ? ` (${indexNameMatch[2].trim()})` : ''
+          const fullSubmitter = `${iName}${iRoll}`
+          if (!candidates.includes(fullSubmitter)) candidates.push(fullSubmitter)
+          if (!candidates.includes(iName)) candidates.push(iName)
+        }
+      }
+    } else {
+      const submittedBlock = src.match(/(?:submitted\s+by|prepared\s+by|authored\s+by|author[:\s])[:\s]*\n*([^\r\n]+)/i)
+      if (submittedBlock && submittedBlock[0]) {
+        const fullBlock = submittedBlock[0].trim()
+        if (fullBlock.length >= 6 && !candidates.includes(fullBlock)) candidates.push(fullBlock)
+        if (submittedBlock[1] && !candidates.includes(submittedBlock[1].trim())) {
+          candidates.push(submittedBlock[1].trim())
+        }
+      }
+      const supMatch = src.match(/(?:under\s+the\s+supervision\s+of|supervised\s+by|supervisor|guided\s+by|mentor)[:\s]*\n*([^\r\n]+)/i)
+      if (supMatch && supMatch[0]) {
+        const fullBlock = supMatch[0].trim()
+        if (fullBlock.length >= 6 && !candidates.includes(fullBlock)) candidates.push(fullBlock)
+        if (supMatch[1] && !candidates.includes(supMatch[1].trim())) candidates.push(supMatch[1].trim())
+      }
     }
 
     const aimMulti = src.match(/\baim[:\s]*\n*([^\r\n]+)/i)
@@ -215,6 +587,13 @@ function getCandidatePhrases(
   if (!fullText) return candidates
 
   // 3. Segment analysis from citation text (handling coalesced multi-chunk boundaries cleanly)
+  // 3.0 Extract any verbatim program or code block inside citation text (strictly bounded up to closing brace or next section)
+  const citCodeMatch = fullText.match(/(?:C\+\+\s*Program:?\s*[^\r\n]*\s*)?(?:#include|def\s|class\s|import\s)[\s\S]*?(?:\n\s*\}|\n\s*(?:Performance\s+Testing|Usability\s+Testing|Functional\s+Testing|Non-Functional\s+Testing|Test\s+Cases?|Compile:|Conclusion|Aim|Theory|\|\s*ID\s*\|)|$)/i)
+  if (citCodeMatch && citCodeMatch[0].trim().length >= 15) {
+    const extractedCitCode = citCodeMatch[0].trim()
+    if (!candidates.includes(extractedCitCode)) candidates.push(extractedCitCode)
+  }
+
   const chunkParts = fullText
     .split(/(?:\r?\n){2,}|\.\.\./)
     .map((p) => p.trim())
@@ -222,7 +601,7 @@ function getCandidatePhrases(
 
   const rawSegments: string[] = []
   for (const part of chunkParts) {
-    if (part.length >= 10 && part.length <= 300 && !candidates.includes(part)) {
+    if (part.length >= 10 && part.length <= 400 && !candidates.includes(part)) {
       candidates.push(part)
     }
     const lines = part
@@ -241,7 +620,11 @@ function getCandidatePhrases(
       for (const w of qWords) {
         if (segLower.includes(w)) score += 3
       }
-      if (/submitted\s+by|author|supervisor|prepared\s+by|aim|theory|total|section|liability|rule/i.test(seg)) {
+      if (isSubmitterIntent && /submitted\s+by|author|student|roll\s+no/i.test(seg)) {
+        score += 10
+      } else if (isSupervisorIntent && /under\s+the\s+supervision|supervised\s+by|supervisor/i.test(seg)) {
+        score += 10
+      } else if (/submitted\s+by|author|supervisor|prepared\s+by|aim|theory|total|section|liability|rule/i.test(seg)) {
         score += 5
       }
       return { seg, score }
@@ -285,6 +668,7 @@ export default function DocumentViewer({
   isSplitView = false,
   activeQuery,
   activeAnswer,
+  onPopOutPreview,
 }: DocumentViewerProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -348,7 +732,7 @@ export default function DocumentViewer({
     return () => {
       canceled = true
     }
-  }, [sessionId, activeDocument])
+  }, [effectiveSessionId, activeDocument])
 
   // 2. Synchronize current page and trigger viewer jump when user selects a different citation
   useEffect(() => {
@@ -427,9 +811,72 @@ export default function DocumentViewer({
     return ''
   }, [docContent, currentPage])
 
+  // Modality helpers & Image OCR safeguards
+  const isImage = useMemo(() => {
+    return (
+      docContent?.modality === 'image' ||
+      activeCitation?.modality === 'image' ||
+      /\.(png|jpe?g|webp|bmp|gif|svg)$/i.test(activeDocument || '')
+    )
+  }, [docContent?.modality, activeCitation?.modality, activeDocument])
+
+  const imageUrl = useMemo(() => {
+    if (docContent?.raw_url) {
+      const url = docContent.raw_url
+      return url.includes('token=') ? url : `${url}?token=${encodeURIComponent(getToken())}`
+    }
+    if (activeCitation?.media_url) {
+      const url = activeCitation.media_url
+      return url.includes('token=') ? url : `${url}?token=${encodeURIComponent(getToken())}`
+    }
+    if (activeDocument && effectiveSessionId) {
+      return `/api/media/${encodeURIComponent(effectiveSessionId)}/${encodeURIComponent(activeDocument)}?token=${encodeURIComponent(getToken())}`
+    }
+    return ''
+  }, [docContent?.raw_url, activeCitation?.media_url, activeDocument, effectiveSessionId])
+
+  const visualDescription = useMemo(() => {
+    if (docContent?.caption) return docContent.caption
+    const match = (docContent?.content || activeCitation?.text || activeCitation?.snippet || '').match(
+      /(?:Visual Scene Description|Visual Description):\s*([^\n]+)/i
+    )
+    if (match && match[1] && !match[1].includes('Screenshot / Graphic')) return match[1].trim()
+    return null
+  }, [docContent?.caption, docContent?.content, activeCitation])
+
+  const cleanOcrText = useMemo(() => {
+    if (docContent?.ocr_text && docContent.ocr_text.trim()) return docContent.ocr_text.trim()
+    const raw = docContent?.content || activeCitation?.text || activeCitation?.snippet || ''
+    const stripped = raw
+      .replace(/\[Image (?:File|Evidence):[^\]]+\]/gi, '')
+      .replace(/Visual (?:Scene )?Description:[^\n]+/gi, '')
+      .replace(/Text \/ Content visible inside the image:/gi, '')
+      .replace(/Visible OCR Text in Image:/gi, '')
+      .replace(/Detected Text \/ OCR:/gi, '')
+      .trim()
+    return stripped || ''
+  }, [docContent?.ocr_text, docContent?.content, activeCitation])
+
+  const safeOcrText = useMemo(() => {
+    if (!cleanOcrText) return ''
+    if (cleanOcrText.startsWith('‰PNG') || cleanOcrText.includes('IHDR') || cleanOcrText.includes('IDAT')) {
+      return ''
+    }
+    const noiseGlyphs = new Set(['×', 'x', 'X', '+', '-', '□', '■', '←', '→', '↑', '↓', '①', '②', '③', '*', '•', '品', '回', '狗', '自', '|', '\\', '/', '>', '<', '~', '^', '_'])
+    const lines = cleanOcrText.split('\n')
+      .map(l => l.trim().replace(/\s+[×xX+□■]\s*$/, ''))
+      .filter(l => l.length > 0 && !noiseGlyphs.has(l) && (l.length > 2 || /[a-zA-Z0-9]/.test(l)))
+    return lines.join('\n')
+  }, [cleanOcrText])
+
+  const targetTextForHighlights = useMemo(() => {
+    if (isImage) return safeOcrText
+    return currentPageText
+  }, [isImage, safeOcrText, currentPageText])
+
   // Text matching & Highlighting Engine (Unicode, Devanagari, and whitespace aware)
   const renderedTextWithHighlights = useMemo(() => {
-    if (!currentPageText) return null
+    if (!targetTextForHighlights) return null
 
     // Find all citations on this page or without page restrictions
     const citationsOnThisPage = docCitations.filter(
@@ -437,7 +884,7 @@ export default function DocumentViewer({
     )
 
     if (citationsOnThisPage.length === 0) {
-      return <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200">{currentPageText}</div>
+      return <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200">{targetTextForHighlights}</div>
     }
 
     // Attempt to locate passages in page text
@@ -451,20 +898,57 @@ export default function DocumentViewer({
     const matches: MatchRange[] = []
 
     for (const cit of citationsOnThisPage) {
-      const phrases = getCandidatePhrases(cit, activeQuery, activeAnswer, currentPageText)
       let matchFound = false
 
-      for (const phrase of phrases) {
-        const loc = locatePhraseInText(currentPageText, phrase)
-        if (loc && loc.end > loc.start) {
+      // 1. Exact wrapped PDF sentence matching (1-to-3 consecutive line window scoring)
+      let targetEv = (cit as any).evidence_span || cit.snippet || ''
+      if (activeAnswer) {
+        const evMatch = activeAnswer.match(/>\s*(?:\*\*)?Supporting\s+Evidence(?:\s*\[(\d+)\])?:?\*\*\s*\n*>*\s*([\s\S]*?)(?=\n\s*\n\s*[^>]|$)/i)
+        if (evMatch && (!evMatch[1] || Number(evMatch[1]) === cit.index || cit.index === 1)) {
+          const cleanBlock = evMatch[2].replace(/^>\s*/gm, '').replace(/\*\*/g, '').trim()
+          if (cleanBlock.length >= 8) {
+            targetEv = cleanBlock
+          }
+        }
+      }
+
+      let boldEntity = ''
+      if (activeAnswer) {
+        const boldMatches = Array.from(activeAnswer.matchAll(/\*\*([^*]+)\*\*/g))
+          .map((m) => m[1].trim())
+          .filter((b) => b.length >= 2 && !/^(?:supporting\s+evidence|aim|experiment|index)\b/i.test(b))
+        if (boldMatches.length > 0) {
+          boldEntity = boldMatches[0]
+        }
+      }
+
+      if (targetEv) {
+        const winLoc = findExactHighlightRange(targetTextForHighlights, targetEv, boldEntity)
+        if (winLoc && winLoc.end > winLoc.start) {
           matches.push({
-            start: loc.start,
-            end: loc.end,
+            start: winLoc.start,
+            end: winLoc.end,
             citation: cit,
             isActive: activeCitation?.index === cit.index,
           })
           matchFound = true
-          break
+        }
+      }
+
+      if (!matchFound) {
+        const phrases = getCandidatePhrases(cit, activeQuery, activeAnswer, targetTextForHighlights)
+        for (const phrase of phrases) {
+          const loc = locatePhraseInText(targetTextForHighlights, phrase)
+          if (loc && loc.end > loc.start) {
+            matches.push({
+              start: loc.start,
+              end: loc.end,
+              citation: cit,
+              isActive: activeCitation?.index === cit.index,
+            })
+            matchFound = true
+            break
+          }
         }
       }
 
@@ -473,7 +957,7 @@ export default function DocumentViewer({
         const rawTarget = (cit.text || cit.snippet || '').trim().replace(/\s+/g, ' ')
         const probe = snapToWordBoundary(rawTarget, 80)
         if (probe && probe.length >= 4) {
-          const loc = locatePhraseInText(currentPageText, probe)
+          const loc = locatePhraseInText(targetTextForHighlights, probe)
           if (loc && loc.end > loc.start) {
             matches.push({
               start: loc.start,
@@ -490,7 +974,7 @@ export default function DocumentViewer({
     if (matches.length === 0) {
       return (
         <div className="whitespace-pre-wrap leading-relaxed text-surface-800 dark:text-surface-200 break-words font-sans">
-          {currentPageText}
+          {targetTextForHighlights}
         </div>
       )
     }
@@ -512,12 +996,12 @@ export default function DocumentViewer({
       if (mStart > lastIdx) {
         elements.push(
           <span key={`text-${lastIdx}-${mStart}`}>
-            {currentPageText.slice(lastIdx, mStart)}
+            {targetTextForHighlights.slice(lastIdx, mStart)}
           </span>
         )
       }
 
-      const highlightedSlice = currentPageText.slice(mStart, m.end)
+      const highlightedSlice = targetTextForHighlights.slice(mStart, m.end)
       const isAct = m.isActive
 
       elements.push(
@@ -542,10 +1026,10 @@ export default function DocumentViewer({
       lastIdx = m.end
     })
 
-    if (lastIdx < currentPageText.length) {
+    if (lastIdx < targetTextForHighlights.length) {
       elements.push(
         <span key={`text-end-${lastIdx}`}>
-          {currentPageText.slice(lastIdx)}
+          {targetTextForHighlights.slice(lastIdx)}
         </span>
       )
     }
@@ -555,18 +1039,36 @@ export default function DocumentViewer({
         {elements}
       </div>
     )
-  }, [currentPageText, docCitations, activeCitation, currentPage, docContent, activeQuery, activeAnswer])
+  }, [targetTextForHighlights, docCitations, activeCitation, currentPage, docContent, activeQuery, activeAnswer])
 
   // Check if active citation has an exact verified match on current page
   const hasVerifiedMatchOnPage = useMemo(() => {
-    if (!activeCitation || !currentPageText) return false
-    const phrases = getCandidatePhrases(activeCitation, activeQuery, activeAnswer, currentPageText)
+    if (!activeCitation || !targetTextForHighlights) return false
+    let targetEv = (activeCitation as any).evidence_span || activeCitation.snippet || ''
+    if (activeAnswer) {
+      const evMatch = activeAnswer.match(/>\s*(?:\*\*)?Supporting\s+Evidence(?:\s*\[(\d+)\])?:?\*\*\s*\n*>*\s*([\s\S]*?)(?=\n\s*\n\s*[^>]|$)/i)
+      if (evMatch && (!evMatch[1] || Number(evMatch[1]) === activeCitation.index || activeCitation.index === 1)) {
+        const cleanBlock = evMatch[2].replace(/^>\s*/gm, '').replace(/\*\*/g, '').trim()
+        if (cleanBlock.length >= 8) targetEv = cleanBlock
+      }
+    }
+    let boldEntity = ''
+    if (activeAnswer) {
+      const boldMatches = Array.from(activeAnswer.matchAll(/\*\*([^*]+)\*\*/g))
+        .map((m) => m[1].trim())
+        .filter((b) => b.length >= 2 && !/^(?:supporting\s+evidence|aim|experiment|index)\b/i.test(b))
+      if (boldMatches.length > 0) boldEntity = boldMatches[0]
+    }
+    if (targetEv && findExactHighlightRange(targetTextForHighlights, targetEv, boldEntity)) {
+      return true
+    }
+    const phrases = getCandidatePhrases(activeCitation, activeQuery, activeAnswer, targetTextForHighlights)
     for (const p of phrases) {
-      if (locatePhraseInText(currentPageText, p)) return true
+      if (locatePhraseInText(targetTextForHighlights, p)) return true
     }
     const probe = (activeCitation.text || activeCitation.snippet || '').trim().slice(0, 60)
     return !!locatePhraseInText(currentPageText, probe)
-  }, [activeCitation, currentPageText, activeQuery, activeAnswer])
+  }, [activeCitation, currentPageText, targetTextForHighlights, activeQuery, activeAnswer])
 
   return (
     <div
@@ -584,6 +1086,8 @@ export default function DocumentViewer({
             <FileSpreadsheet className="h-5 w-5 text-emerald-600 shrink-0" />
           ) : docContent?.modality === 'pptx' ? (
             <Presentation className="h-5 w-5 text-amber-500 shrink-0" />
+          ) : isImage ? (
+            <ImageIcon className="h-5 w-5 text-indigo-500 shrink-0" />
           ) : (
             <FileText className="h-5 w-5 text-brand-600 shrink-0" />
           )}
@@ -593,12 +1097,14 @@ export default function DocumentViewer({
               {activeDocument}
             </h3>
             <div className="flex items-center gap-2 text-[11px] text-surface-500 dark:text-surface-400">
-              <span className="uppercase font-mono font-medium">{docContent?.modality || 'DOC'}</span>
+              <span className="uppercase font-mono font-medium">{isImage ? 'IMAGE' : (docContent?.modality || 'DOC')}</span>
               <span>&middot;</span>
               {docContent?.has_pages ? (
                 <span className="font-medium text-brand-600 dark:text-brand-400">
                   Page {currentPage} of {totalPages}
                 </span>
+              ) : isImage ? (
+                <span className="font-medium text-indigo-600 dark:text-indigo-400">Visual &amp; OCR Evidence</span>
               ) : (
                 <span className="text-amber-600 dark:text-amber-400">Text-level evidence</span>
               )}
@@ -691,6 +1197,19 @@ export default function DocumentViewer({
                 PDF View
               </button>
             </div>
+          )}
+
+          {/* Pop-up Modal Preview */}
+          {onPopOutPreview && (
+            <button
+              type="button"
+              onClick={() => onPopOutPreview(activeDocument, effectiveSessionId, currentPage)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-xs font-medium text-brand-600 dark:text-brand-400 hover:bg-surface-100 dark:hover:bg-surface-700 transition"
+              title="Pop up document in full screen preview modal"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Pop-up Preview</span>
+            </button>
           )}
 
           {/* Full Width Toggle */}
@@ -826,7 +1345,7 @@ export default function DocumentViewer({
               )}
 
               {/* Verified Excerpt Fallback Card (when exact visual match cannot be located on the page) */}
-              {activeCitation && !hasVerifiedMatchOnPage && (
+              {activeCitation && !hasVerifiedMatchOnPage && !isImage && (
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-surface-800 dark:bg-surface-900">
                   <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
                     <Sparkles className="h-4 w-4 text-amber-500" />
@@ -835,7 +1354,7 @@ export default function DocumentViewer({
                   <p className="text-xs text-surface-500 dark:text-surface-400 mb-2">
                     Exact character position could not be automatically anchored in page layout text. Displaying the exact retrieved source chunk below without fabrication:
                   </p>
-                  <blockquote className="rounded-lg bg-surface-50 p-3 text-xs italic text-surface-800 border-l-4 border-amber-500 dark:bg-surface-800 dark:text-surface-200 font-sans leading-relaxed whitespace-pre-wrap">
+                  <blockquote className="rounded-lg bg-surface-50 p-3 text-xs italic text-surface-800 border border-surface-200 dark:border-surface-800 dark:bg-surface-850 dark:text-surface-200 font-sans leading-relaxed whitespace-pre-wrap">
                     "{activeCitation.text || activeCitation.snippet}"
                   </blockquote>
                 </div>
@@ -973,6 +1492,81 @@ export default function DocumentViewer({
                     ) : (
                       <p className="text-xs text-surface-400 p-4">No sheet rows available.</p>
                     )}
+                  </div>
+                </div>
+              ) : isImage ? (
+                /* Dedicated Image & OCR Evidence Viewer */
+                <div className="rounded-2xl border border-surface-200 bg-white shadow-sm overflow-hidden dark:border-surface-800 dark:bg-surface-900 flex flex-col">
+                  {/* Image Canvas / Stage */}
+                  <div className="relative flex flex-col items-center justify-center p-4 sm:p-6 bg-surface-100/70 dark:bg-surface-950/80 border-b border-surface-200 dark:border-surface-800 min-h-[340px] max-h-[640px] overflow-auto">
+                    {imageUrl ? (
+                      <AuthImage
+                        url={imageUrl}
+                        alt={activeDocument}
+                        className="max-h-[560px] max-w-full rounded-lg object-contain shadow-md transition-transform duration-200 select-none cursor-zoom-in"
+                        onClick={() => window.open(imageUrl, '_blank')}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center p-8 text-surface-400">
+                        <ImageIcon className="h-10 w-10 mb-2 opacity-50" />
+                        <p className="text-xs">Image preview not available</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* OCR & Visual Intelligence Section */}
+                  <div className="p-6 space-y-6">
+                    {/* Visual Scene Description Card if available */}
+                    {visualDescription && (
+                      <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 dark:border-indigo-900/60 dark:bg-indigo-950/20">
+                        <div className="flex items-center gap-2 mb-2 text-indigo-700 dark:text-indigo-300 font-semibold text-xs tracking-wide uppercase">
+                          <Sparkles className="h-4 w-4" />
+                          <span>Visual Scene Description</span>
+                        </div>
+                        <p className="text-sm text-surface-800 dark:text-surface-200 leading-relaxed font-sans">
+                          {visualDescription}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Detected Text & OCR Transcript */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-surface-500">
+                            Visible OCR Text &amp; Labels
+                          </span>
+                          {safeOcrText && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400">
+                              {safeOcrText.split('\n').filter(Boolean).length} lines detected
+                            </span>
+                          )}
+                        </div>
+                        {safeOcrText && (
+                          <button
+                            type="button"
+                            onClick={() => navigator.clipboard.writeText(safeOcrText)}
+                            className="text-xs text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1 font-medium"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            <span>Copy Extracted Text</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {safeOcrText ? (
+                        <div
+                          ref={textContainerRef}
+                          className="rounded-xl border border-surface-200 bg-surface-50/50 p-5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words dark:border-surface-800 dark:bg-surface-850/50 text-surface-800 dark:text-surface-200 max-h-[380px] overflow-y-auto"
+                        >
+                          {renderedTextWithHighlights}
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-surface-200 p-6 text-center dark:border-surface-800 text-surface-400 dark:text-surface-500 text-xs">
+                          No readable text or typography was detected in this image. This source is primarily visual.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (

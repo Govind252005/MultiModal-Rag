@@ -33,7 +33,7 @@ def _bootstrap_paths() -> Path:
 
 
 HOST = os.getenv("RAG_HOST", "127.0.0.1")
-PORT = int(os.getenv("RAG_PORT", "8000"))
+PORT = int(os.getenv("RAG_PORT", "8001"))
 BASE_URL = f"http://{HOST}:{PORT}"
 
 
@@ -112,7 +112,7 @@ def main() -> None:
     _redirect_console_streams(config.DATA_HOME)
 
     print("=" * 60)
-    print("  Multimodal Offline RAG")
+    print("  Multimodal Offline RAG V2")
     print("=" * 60)
     print(f"  Code dir : {base}")
     print(f"  Data dir : {config.DATA_HOME}")
@@ -124,21 +124,39 @@ def main() -> None:
 
     if _wait_for_health(BASE_URL):
         _check_ollama()
-        print(f"\n  Multimodal RAG is ready:  {BASE_URL}\n")
+        print(f"\n  Multimodal RAG V2 is ready:  {BASE_URL}\n")
     else:
         print(
             f"[error] Server did not become healthy within the timeout.\n"
             f"        Opening the window anyway - try reloading if it's blank."
         )
 
-    webview.create_window(
-        "Multimodal RAG",
-        BASE_URL,
-        width=1280,
-        height=820,
-        min_size=(900, 600),
-    )
-    webview.start(gui="edgechromium")
+    opened_window = False
+    if not os.getenv("RAG_NO_WINDOW"):
+        try:
+            import webview
+            webview.create_window(
+                "Multimodal RAG V2",
+                BASE_URL,
+                width=1280,
+                height=820,
+                min_size=(900, 600),
+            )
+            webview.start(gui="edgechromium")
+            opened_window = True
+        except Exception as err:
+            print(f"[info] Native desktop window fallback: {err}")
+
+    if not opened_window:
+        import webbrowser
+        if not os.getenv("RAG_NO_BROWSER"):
+            webbrowser.open(BASE_URL)
+        print("  Multimodal RAG V2 server running. Press Ctrl+C in console to stop.")
+        try:
+            while True:
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            print("\n  Shutting down...")
 
 
 if __name__ == "__main__":

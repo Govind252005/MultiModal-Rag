@@ -116,7 +116,7 @@ The spec (`MultimodalRag.spec`) already:
 
 1. **Install + start Ollama** and pull the model (one time):
    ```powershell
-   ollama pull qwen3:8b
+   ollama pull qwen2.5:7b-instruct
    ```
    Ollama runs as a background service on `http://localhost:11434`.
 2. Double-click **`dist\MultimodalRag\MultimodalRag.exe`** (or run it from a
@@ -160,7 +160,7 @@ Other launch knobs: `RAG_HOST` (default `127.0.0.1`), `RAG_PORT` (default
 |---------|-----|
 | `ModuleNotFoundError: No module named 'X'` at runtime | Add `X` to `hiddenimports` in `MultimodalRag.spec` (or to `HEAVY_PACKAGES` if it ships data files), then rebuild. |
 | Exe starts but UI is blank / only JSON at `/` | `frontend\dist` wasn't bundled. Run `npm run build` in `frontend\` first, confirm `frontend\dist\index.html` exists, rebuild. |
-| `Answer says "LLM unavailable"` | Ollama isn't running or model not pulled. `ollama list`, then `ollama pull qwen3:8b`. |
+| `Answer says "LLM unavailable"` | Ollama isn't running or model not pulled. `ollama list`, then `ollama pull qwen2.5:7b-instruct`. |
 | Build fails on `torch` / DLL load errors at runtime | Keep `upx=False` (already set). Make sure the venv's torch actually imports: `python -c "import torch"`. |
 | Antivirus flags the exe | Common with PyInstaller onefile; onedir (this spec) is less prone. Sign the exe or whitelist it. |
 | Huge bundle size (several GB) | Expected — torch + CUDA + models are large. Use the **CPU** torch wheel for a smaller, more portable build. |
@@ -196,7 +196,7 @@ Name: "{commondesktop}\Multimodal RAG"; Filename: "{app}\MultimodalRag.exe"
 
 [Run]
 ; Optional: open Ollama's site if it's not installed, or run a post-install
-; script that does `ollama pull qwen3:8b`.
+; script that does `ollama pull qwen2.5:7b-instruct`.
 Filename: "{app}\MultimodalRag.exe"; Description: "Launch Multimodal RAG"; Flags: nowait postinstall skipifsilent
 ```
 

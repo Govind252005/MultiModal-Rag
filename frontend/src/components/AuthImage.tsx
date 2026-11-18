@@ -4,11 +4,13 @@ import * as api from '../api'
 
 /**
  * Renders an image served by the authenticated /api/media endpoint.
- * The media route requires a Bearer token, so we fetch the bytes and turn
- * them into an object URL rather than using a plain <img src>.
+ * Fetches bytes with Authorization header or query-token fallback.
  */
 export default function AuthImage({
-  url, alt, className, onClick,
+  url,
+  alt,
+  className = '',
+  onClick,
 }: {
   url: string
   alt?: string
@@ -17,14 +19,37 @@ export default function AuthImage({
 }) {
   const [src, setSrc] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let objectUrl: string | null = null
     let cancelled = false
-    setSrc(null)
+    setLoading(true)
     setFailed(false)
+    setSrc(null)
+
+    if (!url) {
+      setLoading(false)
+      setFailed(true)
+      return
+    }
+
+    if (url.startsWith('blob:') || url.startsWith('data:')) {
+      setSrc(url)
+      setLoading(false)
+      return
+    }
+
+    const resolvedUrl = (url.startsWith('/') || url.startsWith('http')) ? url : `/${url}`
+    let safeUrl = resolvedUrl
+    try {
+      safeUrl = encodeURI(decodeURI(resolvedUrl))
+    } catch {
+      safeUrl = encodeURI(resolvedUrl)
+    }
+
     api
-      .getMediaUrl(url)
+      .getMediaUrl(safeUrl)
       .then((u) => {
         if (cancelled) {
           URL.revokeObjectURL(u)
@@ -32,35 +57,57 @@ export default function AuthImage({
         }
         objectUrl = u
         setSrc(u)
+        setLoading(false)
       })
       .catch(() => {
-        if (!cancelled) setFailed(true)
+        if (cancelled) return
+        // Fallback: try direct authenticated URL with query token
+        const token = api.getToken()
+        if (token && !safeUrl.includes('token=')) {
+          const sep = safeUrl.includes('?') ? '&' : '?'
+          const directUrl = `${safeUrl}${sep}token=${encodeURIComponent(token)}`
+          setSrc(directUrl)
+          setLoading(false)
+        } else {
+          setFailed(true)
+          setLoading(false)
+        }
       })
+
     return () => {
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [url])
 
-  if (failed) {
+  if (loading) {
     return (
-      <div className={`flex items-center justify-center bg-slate-100 text-slate-400 dark:bg-slate-800 ${className ?? ''}`}>
-        <ImageOff className="h-5 w-5" />
+      <div className={`flex items-center justify-center rounded-lg border border-surface-200 bg-surface-100 dark:border-surface-800 dark:bg-surface-850 ${className}`}>
+        <Loader2 className="h-4 w-4 animate-spin text-surface-400" />
       </div>
     )
   }
-  if (!src) {
+
+  if (failed || !src) {
     return (
-      <div className={`flex items-center justify-center bg-slate-100 dark:bg-slate-800 ${className ?? ''}`}>
-        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+      <div
+        className={`flex flex-col items-center justify-center rounded-lg border border-surface-200 bg-surface-50 p-2 text-surface-400 dark:border-surface-800 dark:bg-surface-850 ${className}`}
+        title={alt || 'Visual preview unavailable'}
+      >
+        <ImageOff className="h-4 w-4 text-surface-400 mb-1" />
+        <span className="font-mono text-[9px] text-surface-500 truncate max-w-[120px]">
+          {alt || 'Visual chunk'}
+        </span>
       </div>
     )
   }
+
   return (
     <img
       src={src}
       alt={alt ?? 'source image'}
       onClick={onClick}
+      onError={() => setFailed(true)}
       className={className}
       loading="lazy"
     />

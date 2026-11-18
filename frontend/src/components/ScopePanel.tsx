@@ -45,17 +45,17 @@ export default function ScopePanel({
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-2.5 pr-2 text-xs font-medium text-slate-600 transition hover:border-accent-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+        className="flex items-center gap-1.5 rounded-lg border border-surface-200 bg-surface-50 py-1.5 pl-2.5 pr-2 text-xs font-medium text-surface-600 transition hover:border-surface-400 dark:border-surface-700 dark:bg-surface-850 dark:text-surface-300"
         title="Choose which sources to search"
       >
         <SlidersHorizontal className="h-3.5 w-3.5" />
         <span>Scope: {label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+        <ChevronDown className="h-3.5 w-3.5 text-surface-400" />
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-800">
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Type</p>
+        <div className="absolute bottom-full left-0 z-30 mb-2 w-72 rounded-xl border border-surface-200 bg-white p-3 shadow-xl dark:border-surface-700 dark:bg-surface-850">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-surface-400">Type</p>
           <div className="mb-3 grid grid-cols-2 gap-1.5">
             {MODALITIES.map((m) => (
               <button
@@ -63,8 +63,8 @@ export default function ScopePanel({
                 onClick={() => setScope({ ...scope, modality: m.value })}
                 className={`rounded-lg px-2 py-1.5 text-xs font-medium transition ${
                   scope.modality === m.value
-                    ? 'bg-accent-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300'
+                    ? 'bg-brand-600 text-white font-semibold'
+                    : 'bg-surface-100 text-surface-600 hover:bg-surface-200 dark:bg-surface-800 dark:text-surface-300'
                 }`}
               >
                 {m.label}
@@ -73,15 +73,15 @@ export default function ScopePanel({
           </div>
 
           <div className="mb-1.5 flex items-center justify-between">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Files</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-surface-400">Files</p>
             {scope.files.length > 0 && (
-              <button onClick={() => setScope({ ...scope, files: [] })} className="text-[11px] font-medium text-accent-600 hover:underline">
+              <button onClick={() => setScope({ ...scope, files: [] })} className="text-[11px] font-medium text-brand-600 hover:underline dark:text-brand-400">
                 Clear (all)
               </button>
             )}
           </div>
           {files.length === 0 ? (
-            <p className="py-2 text-xs text-slate-400">No files in this chat yet.</p>
+            <p className="py-2 text-xs text-surface-400">No files in this chat yet.</p>
           ) : (
             <ul className="scroll-thin max-h-40 space-y-1 overflow-y-auto">
               {files.map((f) => {
@@ -90,20 +90,20 @@ export default function ScopePanel({
                   <li key={f.file}>
                     <button
                       onClick={() => toggleFile(f.file)}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-surface-700 transition hover:bg-surface-100 dark:text-surface-300 dark:hover:bg-surface-800"
                     >
-                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-accent-600 bg-accent-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-brand-600 bg-brand-600 text-white' : 'border-surface-300 dark:border-surface-600'}`}>
                         {checked && <Check className="h-3 w-3" />}
                       </span>
                       <Icon m={f.modality} />
-                      <span className="min-w-0 flex-1 truncate" title={f.file}>{f.file}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={f.file}>{f.file}</span>
                     </button>
                   </li>
                 )
               })}
             </ul>
           )}
-          <p className="mt-2 text-[10px] leading-snug text-slate-400">
+          <p className="mt-2 text-[10px] leading-snug text-surface-400">
             Tick files to restrict the search to them only. Nothing ticked = all files of the chosen type.
           </p>
         </div>

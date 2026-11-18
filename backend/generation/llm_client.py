@@ -128,24 +128,17 @@ _FINAL_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 _REASONING_MARKER_RE = re.compile(
-    r"\b(we are given|we must|let us|let's|the context includes|let's scan|"
-    r"the question asks|therefore|based on the context|we need to|"
-    r"okay,? let me|looking at|first,|the other|the key point|"
-    r"i need to|let me check|the answer should be|"
-    r"the user is asking|so the final answer|seems to be|"
-    r"the context states|in the context|wait,|hmm,|note that|"
-    r"however,|the draft|the user's|the underlying model|"
-    r"the instruction says|the requested information|we don't need|"
-    r"the title is|actually,|likely|similarly|the context says|"
-    r"first,? i need|i have the retrieved|let me look|the context has|"
-    r"it has details|and it says|the question is about|from the context|"
-    r"we are to output|the answer is)\b",
+    r"\b(we are given|we must|let us|let's scan|"
+    r"the question asks|okay,? let me|i need to|let me check|"
+    r"the user is asking|thinking process|my thought process|"
+    r"first,? i need|let me look|we are to output|wait,?\s+|the instruction says)"
+    r"|<\s*think\s*>",
     re.IGNORECASE,
 )
 _META_REASONING_LINE_RE = re.compile(
-    r"^\s*(?:the\s+context\s+says|the\s+instruction\s+says|but\s+note|however,|"
-    r"we\s+can\s+write|we\s+are\s+to|so\s+we\s+write|note\s+that|let's\s+scan|"
-    r"looking\s+at|we\s+need\s+to|i\s+need\s+to|first,|second,|wait,|hmm,)\b",
+    r"^\s*(?:the\s+instruction\s+says|but\s+note|we\s+can\s+write|"
+    r"we\s+are\s+to|so\s+we\s+write|let's\s+scan|"
+    r"looking\s+at|we\s+need\s+to|i\s+need\s+to|wait,|hmm,)\b",
     re.IGNORECASE,
 )
 
@@ -155,8 +148,13 @@ def clean_answer(text: str) -> str:
     cleaned = _THINK_BLOCK_RE.sub("", text or "")
     cleaned = re.sub(r"<think>.*$", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
     cleaned = re.sub(r"</think>\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"```(?:text|markdown)?\s*|```", "", cleaned,
-                     flags=re.IGNORECASE)
+    # Strip whole-response outer wrappers like ```text ... ``` or ```markdown ... ``` only
+    cleaned = re.sub(
+        r"^\s*```(?:text|markdown)?\r?\n([\s\S]*?)\r?\n```\s*$",
+        r"\1",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     # Normalize citation styles emitted by cloud/local models to the format
     # rendered as clickable citation chips by the frontend.
     cleaned = re.sub(r"[【［]\s*(\d+)\s*[】］]", r"[\1]", cleaned)
@@ -181,8 +179,8 @@ def clean_answer(text: str) -> str:
     )
     cleaned = filler_re.sub("", cleaned).strip()
 
-    # If the output contains a Markdown table, preserve its structure and attach citation if needed
-    if re.search(r"\|.*\|", cleaned) and re.search(r"\|[-:\s|]+\|", cleaned):
+    # If the output contains a code block, Markdown table, heading, or blockquote, preserve its structure and attach citation if needed
+    if "```" in cleaned or (re.search(r"\|.*\|", cleaned) and re.search(r"\|[-:\s|]+\|", cleaned)) or "### " in cleaned or "> " in cleaned:
         if not re.search(r'\[\d+\]', cleaned):
             cleaned = f"{cleaned.rstrip()} [1]"
         return cleaned.strip()
@@ -256,11 +254,18 @@ def _clean_messages_for_model(messages: List[Dict[str, str]], target_model: str)
 
 
 def _chat_options() -> dict:
-    return {
+    opts = {
         "temperature": config.LLM_TEMPERATURE,
         "num_ctx": config.LLM_NUM_CTX,
         "num_predict": max(config.OLLAMA_NUM_PREDICT, 512),
     }
+    top_p = getattr(config, "LLM_TOP_P", None)
+    if top_p is not None:
+        opts["top_p"] = top_p
+    repeat_penalty = getattr(config, "LLM_REPEAT_PENALTY", None)
+    if repeat_penalty is not None:
+        opts["repeat_penalty"] = repeat_penalty
+    return opts
 
 
 def _chat_kwargs(messages: List[Dict[str, str]], model: Optional[str] = None) -> dict:

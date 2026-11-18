@@ -7,10 +7,7 @@ import type { ProviderName, ProviderStatus } from '../types'
 
 /**
  * Provider selector + per-user API key management.
- *
- * Local Qwen (Ollama) needs no key. Cloud providers require an API key,
- * stored encrypted on the backend (Fernet). Selecting a provider only
- * changes the final answer-generation model — retrieval is untouched.
+ * Clean, industrial precision styling.
  */
 export default function ProviderPanel({
   provider,
@@ -62,8 +59,9 @@ export default function ProviderPanel({
   async function refresh() {
     try {
       const res = await api.getProviders()
-      setProviders(res.providers)
-      for (const p of res.providers) {
+      const list = res?.providers || []
+      setProviders(list)
+      for (const p of list) {
         if (p.local || p.has_key) {
           loadModels(p.name)
         }
@@ -98,8 +96,6 @@ export default function ProviderPanel({
       setEditing(null)
       setValidState('idle')
       await refresh()
-      await loadModels(p)
-      onSelect(p, selectedModels[p])
     } catch (err) {
       onError((err as Error).message)
     } finally {
@@ -107,7 +103,6 @@ export default function ProviderPanel({
       setValidating(false)
     }
   }
-
 
   async function validateKey(p: ProviderName) {
     if (!keyInput.trim()) return
@@ -117,6 +112,7 @@ export default function ProviderPanel({
       const res = await api.validateProviderKey(p, keyInput.trim())
       setValidState(res.valid ? 'valid' : 'invalid')
     } catch (err) {
+      setValidState('invalid')
       onError((err as Error).message)
     } finally {
       setValidating(false)
@@ -124,6 +120,7 @@ export default function ProviderPanel({
   }
 
   async function removeKey(p: ProviderName) {
+    if (!confirm(`Remove API key for ${p}?`)) return
     try {
       await api.deleteProviderKey(p)
       if (provider === p) onSelect('ollama')
@@ -133,34 +130,37 @@ export default function ProviderPanel({
     }
   }
 
+  const safeProviders = Array.isArray(providers) ? providers : []
+
   return (
-    <div className="border-t border-slate-200 px-3 py-3 dark:border-slate-800">
-      {showHeading && !collapsed && (
-        <p className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-          Answer model
+    <div className="space-y-2">
+      {showHeading && (
+        <p className="px-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-surface-400">
+          Reasoning Model
         </p>
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 px-1 py-2 text-xs text-slate-400">
+        <div className="flex items-center gap-2 px-1 py-2 text-xs font-mono text-surface-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading providers…
         </div>
       ) : collapsed ? (
         <ul className="space-y-1.5">
-          {providers.map((p) => {
+          {safeProviders.map((p) => {
             const selected = provider === p.name
             const usable = p.local || p.has_key
             return (
               <li key={p.name}>
                 <button
+                  type="button"
                   onClick={() => {
                     if (usable) onSelect(p.name)
                   }}
                   title={p.label}
-                  className={`flex w-full items-center justify-center rounded-xl border p-2 transition ${
+                  className={`flex w-full items-center justify-center rounded-lg border p-2 transition cursor-pointer ${
                     selected
-                      ? 'border-accent-300 bg-accent-50 text-accent-700 dark:border-accent-500/40 dark:bg-accent-500/10 dark:text-accent-200'
-                      : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300'
+                      ? 'border-surface-800 bg-surface-900 text-surface-50 dark:border-surface-200 dark:bg-surface-100 dark:text-surface-950'
+                      : 'border-surface-200 bg-white text-surface-500 hover:border-surface-300 dark:border-surface-700 dark:bg-surface-850 dark:text-surface-300'
                   }`}
                 >
                   {p.local ? (
@@ -175,21 +175,22 @@ export default function ProviderPanel({
         </ul>
       ) : (
         <ul className="space-y-1.5">
-          {providers.map((p) => {
+          {safeProviders.map((p) => {
             const selected = provider === p.name
             const usable = p.local || p.has_key
             const expanded = expandedProvider === p.name
             return (
               <li key={p.name}>
                 <div
-                  className={`rounded-xl border transition ${
+                  className={`rounded-lg border transition ${
                     selected
-                      ? 'border-accent-300 bg-accent-50 dark:border-accent-500/40 dark:bg-accent-500/10'
-                      : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800/50'
-                  } ${expanded ? 'px-2.5 py-2' : 'px-2 py-1.5'}`}
+                      ? 'border-surface-400 bg-surface-100/90 dark:border-surface-600 dark:bg-surface-800 ring-1 ring-surface-300 dark:ring-surface-700'
+                      : 'border-surface-200 bg-white hover:border-surface-300 dark:border-surface-800 dark:bg-surface-900'
+                  } ${expanded ? 'p-2.5' : 'px-2.5 py-1.5'}`}
                 >
                   <div className="flex items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => {
                         setExpandedProvider(p.name)
                         if (usable) {
@@ -203,16 +204,16 @@ export default function ProviderPanel({
                           setValidState('idle')
                         }
                       }}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left cursor-pointer"
                     >
                       <span
-                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                        className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${
                           selected
-                            ? 'border-accent-500 bg-accent-500 text-white'
-                            : 'border-slate-300 dark:border-slate-600'
+                            ? 'border-surface-900 bg-surface-900 text-white dark:border-surface-100 dark:bg-surface-100 dark:text-surface-950'
+                            : 'border-surface-300 dark:border-surface-600'
                         }`}
                       >
-                        {selected && <Check className="h-3 w-3" />}
+                        {selected && <Check className="h-2.5 w-2.5" />}
                       </span>
                       {p.local ? (
                         <Cpu className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
@@ -220,11 +221,11 @@ export default function ProviderPanel({
                         <Cloud className="h-3.5 w-3.5 shrink-0 text-sky-500" />
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className={`block truncate font-medium text-slate-700 dark:text-slate-200 ${expanded ? 'text-sm' : 'text-xs'}`}>
+                        <span className={`block truncate font-medium text-surface-800 dark:text-surface-100 ${expanded ? 'text-xs' : 'text-[11px]'}`}>
                           {p.label}
                         </span>
                         {expanded && (
-                          <span className="block truncate text-[10px] text-slate-400">
+                          <span className="block truncate font-mono text-[10px] text-surface-400">
                             {selectedModels[p.name] || p.model}
                           </span>
                         )}
@@ -234,43 +235,45 @@ export default function ProviderPanel({
                     {expanded && !p.local && (
                       <div className="flex shrink-0 items-center gap-1">
                         {p.has_key ? (
-                          <span title="API key saved">
+                          <span title="API key active">
                             <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
                           </span>
                         ) : (
-                          <span title="No API key">
+                          <span title="No API key provided">
                             <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
                           </span>
                         )}
                         <button
+                          type="button"
                           onClick={() => {
                             setEditing(editing === p.name ? null : p.name)
                             setKeyInput('')
                             setValidState('idle')
                           }}
-                          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700"
-                          title={p.has_key ? 'Replace API key' : 'Add API key'}
+                          className="rounded p-1 text-surface-400 hover:bg-surface-100 hover:text-surface-600 dark:hover:bg-surface-800 cursor-pointer"
+                          title={p.has_key ? 'Replace key' : 'Add key'}
                         >
-                          <KeyRound className="h-3.5 w-3.5" />
+                          <KeyRound className="h-3 w-3" />
                         </button>
                         {p.has_key && (
                           <button
+                            type="button"
                             onClick={() => removeKey(p.name)}
-                            className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
-                            title="Remove API key"
+                            className="rounded p-1 text-surface-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 cursor-pointer"
+                            title="Remove key"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-3 w-3" />
                           </button>
                         )}
                       </div>
                     )}
                   </div>
 
-                  {/* Model Selector for Local Ollama or Cloud Providers with valid Key */}
+                  {/* Model Selector */}
                   {expanded && (p.local || p.has_key) && (
-                    <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-700/60">
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-                        <span>Model</span>
+                    <div className="mt-2 border-t border-surface-100 pt-2 dark:border-surface-800">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-surface-400 mb-1">
+                        <span>MODEL IDENTIFIER</span>
                         {loadingModels[p.name] && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
                       </div>
                       <select
@@ -282,10 +285,10 @@ export default function ProviderPanel({
                             onSelect(p.name, newModel)
                           }
                         }}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-accent-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                        className="w-full rounded border border-surface-200 bg-white px-2 py-1 text-xs font-mono text-surface-800 outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-850 dark:text-surface-100"
                       >
                         {(providerModels[p.name] || [{ id: p.model, name: p.model }]).map((m) => (
-                          <option key={m.id} value={m.id}>
+                          <option key={m.id} value={m.id} className="dark:bg-surface-850 dark:text-surface-100">
                             {m.name || m.id}
                           </option>
                         ))}
@@ -293,12 +296,11 @@ export default function ProviderPanel({
                     </div>
                   )}
 
-
                   {!p.local && expanded && editing === p.name && (
                     <div className="mt-2 space-y-1.5">
                       {!p.has_key && (
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          Add and test your API key to enable this model.
+                        <p className="text-[10px] font-mono text-surface-400">
+                          Configure API credentials for {p.label}:
                         </p>
                       )}
                       <input
@@ -308,30 +310,32 @@ export default function ProviderPanel({
                           setKeyInput(e.target.value)
                           setValidState('idle')
                         }}
-                        placeholder={`${p.label} API key`}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-accent-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                        placeholder={`${p.label} key`}
+                        className="w-full rounded border border-surface-200 bg-white px-2 py-1 text-xs font-mono text-surface-800 outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-850 dark:text-surface-100"
                       />
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 pt-1">
                         <button
+                          type="button"
                           onClick={() => saveKey(p.name)}
                           disabled={saving || !keyInput.trim()}
-                          className="flex items-center gap-1 rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+                          className="flex items-center gap-1 rounded bg-surface-900 px-2 py-0.5 text-xs font-mono font-medium text-white hover:bg-surface-800 disabled:opacity-50 dark:bg-surface-100 dark:text-surface-950 dark:hover:bg-white cursor-pointer"
                         >
                           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
                           Save
                         </button>
                         <button
+                          type="button"
                           onClick={() => validateKey(p.name)}
                           disabled={validating || !keyInput.trim()}
-                          className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                          className="flex items-center gap-1 rounded border border-surface-200 px-2 py-0.5 text-xs font-mono font-medium text-surface-600 hover:bg-surface-50 disabled:opacity-50 dark:border-surface-700 dark:text-surface-300 dark:hover:bg-surface-800 cursor-pointer"
                         >
                           {validating ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Test'}
                         </button>
                         {validState === 'valid' && (
-                          <span className="text-xs font-medium text-emerald-500">Valid ✓</span>
+                          <span className="font-mono text-xs text-emerald-600 dark:text-emerald-400 font-semibold">Valid ✓</span>
                         )}
                         {validState === 'invalid' && (
-                          <span className="text-xs font-medium text-red-500">Invalid ✗</span>
+                          <span className="font-mono text-xs text-rose-600 dark:text-rose-400 font-semibold">Invalid ✗</span>
                         )}
                       </div>
                     </div>

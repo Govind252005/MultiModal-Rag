@@ -29,6 +29,7 @@ import datetime as _dt
 import json
 import os
 import threading
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -69,11 +70,23 @@ def _read(session_id: str) -> Optional[Dict[str, Any]]:
 def _write(session: Dict[str, Any]) -> None:
     session["updated_at"] = _now()
     path = _path(session["id"])
-    # Atomic write: never leave a half-written/corrupt session file behind
-    # if the process is killed mid-write.
+    content = json.dumps(session, ensure_ascii=False, indent=2)
+    # Atomic write: never leave a half-written/corrupt session file behind.
+    # On Windows, os.replace can encounter transient file locking from indexers; retry briefly.
     tmp_path = path.with_suffix(f".{uuid.uuid4().hex[:8]}.tmp")
-    tmp_path.write_text(json.dumps(session, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp_path, path)  # atomic on POSIX and Windows
+    tmp_path.write_text(content, encoding="utf-8")
+    for attempt in range(6):
+        try:
+            os.replace(tmp_path, path)
+            return
+        except PermissionError:
+            time.sleep(0.05)
+    # Final fallback if NTFS transient lock persists
+    try:
+        path.write_text(content, encoding="utf-8")
+        tmp_path.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def _read_modify_write(session_id: str, modify) -> Optional[Dict[str, Any]]:

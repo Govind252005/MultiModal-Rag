@@ -51,7 +51,7 @@ def _mode_flags(mode: str) -> Dict[str, bool]:
         "ocr_fallback": mode in ("balanced", "max_quality"),
         "extract_tables": mode in ("balanced", "max_quality"),
         "extract_embedded_images": mode == "max_quality",
-        "caption_images": mode == "max_quality",
+        "caption_images": mode in ("balanced", "max_quality"),
     }
 
 

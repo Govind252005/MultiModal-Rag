@@ -149,9 +149,11 @@ export function queryAudio(sessionId: string, file: File, topK: number, files: s
   if (query) form.append('query', query)
   return request<AudioQueryResponse>('/api/query/audio', { method: 'POST', body: form })
 }
-export function transcribe(sessionId: string, blob: Blob): Promise<TranscribeResponse> {
+export function transcribe(sessionId: string, blob: Blob, filename?: string): Promise<TranscribeResponse> {
   const form = new FormData()
-  form.append('session_id', sessionId); form.append('file', blob, 'recording.webm')
+  const fname = filename || (blob instanceof File ? (blob as File).name : 'recording.webm')
+  form.append('session_id', sessionId)
+  form.append('file', blob, fname)
   return request<TranscribeResponse>('/api/transcribe', { method: 'POST', body: form })
 }
 
@@ -303,13 +305,25 @@ export const activateProvider = (provider: ProviderName, model?: string) =>
 
 // ---- media ---------------------------------------------------------------
 export async function getMediaUrl(url: string): Promise<string> {
+  if (!url) return '';
+  // If the url is already an in-memory blob or data URI, do not attempt to fetch with custom headers
+  if (url.startsWith('blob:') || url.startsWith('data:')) {
+    return url;
+  }
+  const fullUrl = (url.startsWith('/') || url.startsWith('http')) ? url : `/${url}`;
+  let safeUrl = fullUrl;
+  try {
+    safeUrl = encodeURI(decodeURI(fullUrl));
+  } catch {
+    safeUrl = encodeURI(fullUrl);
+  }
   const headers = new Headers();
 
   if (TOKEN) {
     headers.set("Authorization", `Bearer ${TOKEN}`);
   }
 
-  const res = await fetch(url, { headers });
+  const res = await fetch(safeUrl, { headers });
 
   if (res.status === 401) {
     clearToken();
@@ -321,7 +335,18 @@ export async function getMediaUrl(url: string): Promise<string> {
     throw new Error(`Failed to load media (${res.status})`);
   }
 
-  const blob = await res.blob();
+  let blob = await res.blob();
+  if (!blob.type || blob.type === 'application/octet-stream') {
+    const lower = fullUrl.toLowerCase();
+    if (lower.includes('.png')) blob = blob.slice(0, blob.size, 'image/png');
+    else if (lower.includes('.jpg') || lower.includes('.jpeg')) blob = blob.slice(0, blob.size, 'image/jpeg');
+    else if (lower.includes('.webp')) blob = blob.slice(0, blob.size, 'image/webp');
+    else if (lower.includes('.gif')) blob = blob.slice(0, blob.size, 'image/gif');
+    else if (lower.includes('.svg')) blob = blob.slice(0, blob.size, 'image/svg+xml');
+    else if (lower.includes('.pdf')) blob = blob.slice(0, blob.size, 'application/pdf');
+    else if (lower.includes('.mp3')) blob = blob.slice(0, blob.size, 'audio/mpeg');
+    else if (lower.includes('.wav')) blob = blob.slice(0, blob.size, 'audio/wav');
+  }
 
   return URL.createObjectURL(blob);
 }

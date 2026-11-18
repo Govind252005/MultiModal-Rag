@@ -64,38 +64,68 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   }
 
   return (
-    <div className="min-h-screen bg-surface-50 dark:bg-surface-950 flex flex-col justify-center items-center px-4 py-12">
+    <div className="min-h-screen bg-surface-50 dark:bg-surface-950 flex flex-col justify-center items-center px-4 py-12 font-sans text-surface-900 dark:text-surface-100">
       <div className="w-full max-w-md">
-        <div className="mb-4">
+        <div className="mb-6 flex items-center justify-between">
           <button
             type="button"
             onClick={() => onNavigate('landing')}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-surface-500 hover:text-surface-800 dark:text-surface-400 dark:hover:text-surface-200 transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs font-mono text-surface-500 hover:text-surface-800 dark:text-surface-400 dark:hover:text-surface-200 transition-colors"
           >
-            &larr; Back to Home / Product Overview
+            &larr; BACK TO OVERVIEW
           </button>
+          <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>ENTERPRISE SECURE</span>
+          </div>
         </div>
 
         {/* Header Branding */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <div
             onClick={() => onNavigate('landing')}
-            className="inline-flex cursor-pointer items-center justify-center h-12 w-12 rounded-xl bg-brand-600 text-white font-bold text-xl shadow-card mb-4"
+            className="inline-flex cursor-pointer items-center justify-center h-11 w-11 rounded-lg bg-surface-900 text-surface-50 dark:bg-surface-100 dark:text-surface-950 font-mono font-bold text-lg shadow-subtle mb-3"
           >
             M
           </div>
-          <h2 className="text-2xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
-            {isRegister ? 'Create your enterprise workspace' : 'Sign in to Multimodal RAG'}
+          <h2 className="text-xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
+            {isRegister ? 'Provision Workspace Access' : 'Authenticate Session'}
           </h2>
-          <p className="mt-2 text-xs text-surface-500 dark:text-surface-400">
+          <p className="mt-1 text-xs text-surface-500 dark:text-surface-400">
             {isRegister
-              ? 'Access private offline and cloud-connected document intelligence'
-              : 'Enter your credentials to access your session library'}
+              ? 'Initialize isolated tenant repository with encrypted credentials'
+              : 'Enter enterprise credentials to access active RAG sessions'}
           </p>
         </div>
 
         {/* Auth Card */}
-        <div className="bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 rounded-2xl p-6 sm:p-8 shadow-card">
+        <div className="bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 rounded-xl p-6 sm:p-7 shadow-subtle">
+          {/* Segmented Control */}
+          <div className="flex rounded-lg border border-surface-200 dark:border-surface-800 bg-surface-100 dark:bg-surface-950 p-1 mb-5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => { setIsRegister(false); setError(null); }}
+              className={`flex-1 py-1.5 rounded text-center transition font-mono ${
+                !isRegister
+                  ? 'bg-white dark:bg-surface-850 text-surface-900 dark:text-surface-100 shadow-2xs font-semibold'
+                  : 'text-surface-500 hover:text-surface-900 dark:hover:text-surface-100'
+              }`}
+            >
+              SIGN IN
+            </button>
+            <button
+              type="button"
+              onClick={() => { setIsRegister(true); setError(null); }}
+              className={`flex-1 py-1.5 rounded text-center transition font-mono ${
+                isRegister
+                  ? 'bg-white dark:bg-surface-850 text-surface-900 dark:text-surface-100 shadow-2xs font-semibold'
+                  : 'text-surface-500 hover:text-surface-900 dark:hover:text-surface-100'
+              }`}
+            >
+              REGISTER
+            </button>
+          </div>
+
           {error && (
             <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-rose-200 bg-rose-50/70 p-3 text-xs text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
               <AlertCircle className="h-4 w-4 shrink-0 text-rose-500 mt-0.5" />
@@ -105,10 +135,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
-              label="Work Email"
+              label="Enterprise Email"
               type="email"
               autoComplete="email"
-              placeholder="you@example.com"
+              placeholder="operator@organization.internal"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               leftIcon={<Mail className="h-4 w-4" />}
@@ -117,10 +147,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
             <div className="relative">
               <Input
-                label="Password"
+                label="Master Passphrase"
                 type={showPassword ? 'text' : 'password'}
                 autoComplete={isRegister ? 'new-password' : 'current-password'}
-                placeholder="Your password"
+                placeholder="••••••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 leftIcon={<Lock className="h-4 w-4" />}
@@ -140,10 +170,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
             {isRegister && (
               <Input
-                label="Confirm Password"
+                label="Confirm Passphrase"
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="new-password"
-                placeholder="Re-enter password"
+                placeholder="••••••••••••"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 leftIcon={<Lock className="h-4 w-4" />}
@@ -154,53 +184,20 @@ export const AuthPage: React.FC<AuthPageProps> = ({
             <Button
               type="submit"
               variant="primary"
-              size="lg"
+              size="md"
               loading={loading}
               className="w-full mt-2"
               icon={<ArrowRight className="h-4 w-4" />}
             >
-              {isRegister ? 'Create Account' : 'Sign In'}
+              {isRegister ? 'Provision Workspace' : 'Authenticate Console'}
             </Button>
           </form>
-
-          {/* Toggle between Login and Register */}
-          <div className="mt-6 pt-5 border-t border-surface-100 dark:border-surface-800 text-center text-xs text-surface-500">
-            {isRegister ? (
-              <p>
-                Already have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRegister(false)
-                    setError(null)
-                  }}
-                  className="font-medium text-brand-600 hover:text-brand-500 dark:text-brand-400 underline"
-                >
-                  Sign in
-                </button>
-              </p>
-            ) : (
-              <p>
-                Don't have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRegister(true)
-                    setError(null)
-                  }}
-                  className="font-medium text-brand-600 hover:text-brand-500 dark:text-brand-400 underline"
-                >
-                  Create one now
-                </button>
-              </p>
-            )}
-          </div>
         </div>
 
         {/* Security badge at bottom */}
-        <div className="mt-8 flex items-center justify-center gap-1.5 text-xs text-surface-400">
+        <div className="mt-6 flex items-center justify-center gap-2 text-xs font-mono text-surface-400">
           <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
-          <span>PBKDF2 Password Hashing &middot; Multi-Tenant Encrypted Sessions</span>
+          <span>ARGON2 SECURED &middot; LOCAL ISOLATION</span>
         </div>
       </div>
     </div>

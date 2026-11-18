@@ -422,9 +422,14 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
                             {getFormatIcon(doc.filename)}
                           </div>
                           <div className="min-w-0">
-                            <span className="block truncate font-medium text-surface-900 dark:text-surface-100 max-w-xs md:max-w-sm" title={doc.filename}>
+                            <button
+                              type="button"
+                              onClick={() => onOpenViewer(doc.session_id, doc.filename)}
+                              className="block truncate font-medium text-surface-900 hover:text-brand-600 dark:text-surface-100 dark:hover:text-brand-400 max-w-xs md:max-w-sm text-left transition cursor-pointer"
+                              title={`Click to preview ${doc.filename}`}
+                            >
                               {doc.filename}
-                            </span>
+                            </button>
                             <span className="text-xs text-surface-400 flex items-center gap-1">
                               <Clock className="h-3 w-3" />
                               {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : 'Active'}
@@ -548,7 +553,11 @@ export const DocumentManagement: React.FC<DocumentManagementProps> = ({
                         {getFormatIcon(doc.filename)}
                       </div>
                       <div className="min-w-0">
-                        <h4 className="font-semibold text-sm text-surface-900 dark:text-surface-100 truncate" title={doc.filename}>
+                        <h4
+                          onClick={() => onOpenViewer(doc.session_id, doc.filename)}
+                          className="font-semibold text-sm text-surface-900 dark:text-surface-100 truncate hover:text-brand-600 dark:hover:text-brand-400 cursor-pointer transition"
+                          title={`Click to preview ${doc.filename}`}
+                        >
                           {doc.filename}
                         </h4>
                         <span className="text-xs text-surface-400">

@@ -10,7 +10,6 @@ import {
   X,
   Loader2,
   StopCircle,
-  ShieldCheck,
   Layers,
 } from 'lucide-react'
 import type { LibraryFile, Scope, ActiveProviderResponse } from '../types'
@@ -77,14 +76,30 @@ export default function Composer({
   const audioInputRef = useRef<HTMLInputElement>(null)
 
   const recorderRef = useRef<MediaRecorder | null>(null)
+  const recorderMimeRef = useRef<string>('audio/webm')
   const streamRef = useRef<MediaStream | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<any>(null)
   const speechRecRef = useRef<any>(null)
+  const isRecordingRef = useRef<boolean>(false)
+  const initialPromptRef = useRef<string>('')
+  const accumulatedSpeechRef = useRef<string>('')
+  const lastSessionFinalRef = useRef<string>('')
+  const isSubmittingRef = useRef<boolean>(false)
+  const querySentRef = useRef<boolean>(false)
+  const hasLiveDictatedRef = useRef<boolean>(false)
+  const inputRef = useRef<string>('')
+  const recordingSessionIdRef = useRef<number>(0)
+
+  // Keep inputRef constantly updated with input state to prevent stale closures
+  useEffect(() => {
+    inputRef.current = input
+  }, [input])
 
   // Listen for query rewrite/edit triggers
   useEffect(() => {
     if (prefillQuery !== undefined && prefillQuery !== '') {
+      inputRef.current = prefillQuery
       setInput(prefillQuery)
       if (textareaRef.current) {
         textareaRef.current.focus()
@@ -158,15 +173,7 @@ export default function Composer({
                 : att
             )
           )
-          // Populate the prompt query textarea so the user can immediately review, edit, and add instructions!
-          if (trimmed) {
-            setInput((prev) => {
-              const currentInput = prev.trim()
-              if (!currentInput) return trimmed
-              if (!currentInput.includes(trimmed)) return `${currentInput}\n${trimmed}`
-              return prev
-            })
-          }
+          // Background transcript saved on attachment chip (available via 'Edit in Query' button)
         })
         .catch(() => {
           setStagedFiles((current) =>
@@ -188,76 +195,330 @@ export default function Composer({
     })
   }
 
-  // Voice recording with live speech-to-text review
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-      chunksRef.current = []
-      const recorder = new MediaRecorder(stream)
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data)
+  // Helper to obtain audio media stream across browsers
+  async function getAudioMediaStream(): Promise<MediaStream> {
+    if (navigator?.mediaDevices?.getUserMedia) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: true,
+          },
+        })
+      } catch {
+        return await navigator.mediaDevices.getUserMedia({ audio: true })
       }
-      recorder.onstop = handleRecordingStop
-      recorder.start()
-      recorderRef.current = recorder
-      setRecording(true)
+    }
 
-      // Start live speech-to-text if Web Speech API is supported
-      if (typeof window !== 'undefined') {
-        const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-        if (SpeechRec) {
-          try {
-            const rec = new SpeechRec()
-            rec.continuous = true
-            rec.interimResults = true
-            rec.onresult = (evt: any) => {
-              let liveText = ''
-              for (let i = 0; i < evt.results.length; ++i) {
-                liveText += evt.results[i][0].transcript
-              }
-              if (liveText.trim()) {
-                setInput(liveText.trim())
-              }
-            }
-            rec.onerror = () => {
-              // Graceful fallback to backend Whisper on stop
-            }
-            rec.start()
-            speechRecRef.current = rec
-          } catch {
-            // SpeechRec init failed, fallback to backend transcribe on stop
+    const legacyGetUserMedia =
+      (navigator as any)?.getUserMedia ||
+      (navigator as any)?.webkitGetUserMedia ||
+      (navigator as any)?.mozGetUserMedia ||
+      (navigator as any)?.msGetUserMedia
+
+    if (legacyGetUserMedia) {
+      return new Promise<MediaStream>((resolve, reject) => {
+        legacyGetUserMedia.call(navigator, { audio: true }, resolve, reject)
+      })
+    }
+
+    throw new Error('NO_GETUSERMEDIA')
+  }
+
+  // Live Speech Recognition Helper
+  function startLiveSpeechRecognition() {
+    if (typeof window === 'undefined') return
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRec) {
+      console.warn('[Composer] Web Speech API not supported in this browser.')
+      return
+    }
+
+    try {
+      if (speechRecRef.current) {
+        try { speechRecRef.current.stop() } catch {}
+        speechRecRef.current = null
+      }
+
+      const rec = new SpeechRec()
+      rec.continuous = true
+      rec.interimResults = true
+      rec.lang = navigator.language || 'en-US'
+
+      rec.onresult = (evt: any) => {
+        // Discard lingering events if query was submitted or recording stopped
+        if (isSubmittingRef.current || querySentRef.current || !isRecordingRef.current) {
+          return
+        }
+
+        let sessionFinal = ''
+        let sessionInterim = ''
+
+        for (let i = 0; i < evt.results.length; ++i) {
+          const res = evt.results[i]
+          if (res.isFinal) {
+            sessionFinal += res[0].transcript + ' '
+          } else {
+            sessionInterim += res[0].transcript
+          }
+        }
+
+        lastSessionFinalRef.current = sessionFinal.trim()
+        const currentLive = [
+          accumulatedSpeechRef.current,
+          sessionFinal.trim(),
+          sessionInterim.trim(),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .trim()
+
+        if (currentLive) {
+          const prefix = initialPromptRef.current ? initialPromptRef.current + ' ' : ''
+          const full = prefix + currentLive
+          hasLiveDictatedRef.current = true
+          inputRef.current = full
+          setInput(full)
+          if (textareaRef.current) {
+            textareaRef.current.scrollTop = textareaRef.current.scrollHeight
           }
         }
       }
-    } catch {
-      onError('Microphone permission denied or device unavailable.')
+
+      rec.onend = () => {
+        speechRecRef.current = null
+        if (lastSessionFinalRef.current) {
+          accumulatedSpeechRef.current = [
+            accumulatedSpeechRef.current,
+            lastSessionFinalRef.current,
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .trim()
+          lastSessionFinalRef.current = ''
+        }
+        // Auto-resume recognition if user is still recording and query not submitted
+        if (isRecordingRef.current && !isSubmittingRef.current && !querySentRef.current) {
+          setTimeout(() => {
+            if (isRecordingRef.current && !speechRecRef.current && !isSubmittingRef.current && !querySentRef.current) {
+              startLiveSpeechRecognition()
+            }
+          }, 40)
+        }
+      }
+
+      rec.onerror = (e: any) => {
+        if (e?.error === 'no-speech') return
+        if (e?.error === 'not-allowed') {
+          onError('Microphone is disabled in browser permissions.')
+          return
+        }
+        console.warn('[Composer] Live dictation notice:', e?.error || e)
+      }
+
+      rec.start()
+      speechRecRef.current = rec
+    } catch (err) {
+      console.warn('[Composer] Speech recognition init note:', err)
     }
   }
 
+  // Audio Capture for Whisper Backend Fallback
+  async function initAudioMediaCapture() {
+    try {
+      const stream = await getAudioMediaStream()
+      streamRef.current = stream
+      chunksRef.current = []
+
+      let chosenMime = ''
+      const candidateMimes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/mp4',
+        'audio/aac',
+      ]
+      for (const mime of candidateMimes) {
+        if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+          if (MediaRecorder.isTypeSupported(mime)) {
+            chosenMime = mime
+            break
+          }
+        }
+      }
+      recorderMimeRef.current = chosenMime || 'audio/webm'
+
+      const recorder = chosenMime
+        ? new MediaRecorder(stream, { mimeType: chosenMime })
+        : new MediaRecorder(stream)
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunksRef.current.push(e.data)
+        }
+      }
+      recorder.onstop = handleRecordingStop
+
+      // Timeslice of 250ms ensures chunks are pushed continuously
+      recorder.start(250)
+      recorderRef.current = recorder
+    } catch (err: any) {
+      console.warn('[Composer] MediaRecorder init note:', err)
+      const errName = err?.name || ''
+      const hasSpeechRec =
+        typeof window !== 'undefined' &&
+        Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+      if (!hasSpeechRec) {
+        if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
+          onError('Microphone is disabled in browser permissions.')
+        } else if (errName === 'NotFoundError') {
+          onError('Microphone device not found.')
+        }
+      }
+    }
+  }
+
+  // Voice recording with live speech-to-text review
+  function startRecording() {
+    if (busy) {
+      onError('Please wait for the current response to finish before speaking.')
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      onError('Microphone requires a secure connection (localhost or HTTPS).')
+      return
+    }
+
+    recordingSessionIdRef.current += 1
+    isRecordingRef.current = true
+    querySentRef.current = false
+    isSubmittingRef.current = false
+    hasLiveDictatedRef.current = false
+    initialPromptRef.current = (inputRef.current || input).trim()
+    accumulatedSpeechRef.current = ''
+    lastSessionFinalRef.current = ''
+    chunksRef.current = []
+    setRecording(true)
+
+    // 1. MUST BE SYNCHRONOUS: Start speech recognition immediately in user click event
+    // This guarantees Chrome preserves the user gesture token so words start typing immediately as you speak!
+    startLiveSpeechRecognition()
+
+    // 2. Start audio media capture in background as silent fallback
+    initAudioMediaCapture()
+  }
+
   function stopRecording() {
+    isRecordingRef.current = false
+    setRecording(false)
+
     if (speechRecRef.current) {
       try {
+        speechRecRef.current.onresult = null
+        speechRecRef.current.onend = null
+        speechRecRef.current.onerror = null
         speechRecRef.current.stop()
       } catch {}
       speechRecRef.current = null
     }
-    recorderRef.current?.stop()
-    setRecording(false)
+
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      try {
+        recorderRef.current.stop()
+      } catch {}
+    } else {
+      handleRecordingStop()
+    }
   }
 
   async function handleRecordingStop() {
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-    const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-    if (blob.size === 0) return
+    if (streamRef.current) {
+      try {
+        streamRef.current.getTracks().forEach((t) => t.stop())
+      } catch {}
+      streamRef.current = null
+    }
 
-    const recordedFile = new File([blob], `voice-recording-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.webm`, {
-      type: 'audio/webm',
-    })
+    const currentSession = recordingSessionIdRef.current
+    const mime = recorderMimeRef.current || 'audio/webm'
+    const blob = chunksRef.current.length > 0 ? new Blob(chunksRef.current, { type: mime }) : null
+    chunksRef.current = []
 
-    // Stage the audio for review — strictly DO NOT auto-submit!
-    stageFile(recordedFile)
+    // Focus textarea immediately so user sees cursor and can edit or send right away
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        const len = textareaRef.current.value.length
+        textareaRef.current.setSelectionRange(len, len)
+      }
+    }, 30)
+
+    // 1. If user already submitted the query or is submitting:
+    // DO ABSOLUTELY NOTHING! Never call Whisper, never toast, never resurrect text!
+    if (isSubmittingRef.current || querySentRef.current) {
+      return
+    }
+
+    // 2. IF LIVE VOICE DETECTION ALREADY TYPED THE TEXT (or text is present in panel):
+    // We are COMPLETELY done! The user's spoken words are already in the message panel.
+    // Never call Whisper! Never show dots! Never show error toast!
+    const currentTextInPanel = (inputRef.current || input).trim()
+    if (hasLiveDictatedRef.current || currentTextInPanel.length > 0) {
+      return
+    }
+
+    // 3. ONLY IF NOTHING was recognized via live speech (e.g. browser has no Web Speech API or was offline):
+    // Run Whisper in the background as a fallback.
+    if (blob && blob.size > 1000) {
+      try {
+        const ext = mime.includes('mp4') ? 'mp4' : mime.includes('ogg') ? 'ogg' : 'webm'
+        const recordedFile = new File(
+          [blob],
+          `voice-recording-${Date.now()}.${ext}`,
+          { type: mime }
+        )
+        const text = await transcribeBlob(recordedFile)
+        const trimmed = (text || '').trim()
+
+        // Discard dots or noise (must have alphanumeric characters)
+        const hasAlphanumeric = /[a-zA-Z0-9\u0900-\u097F]/.test(trimmed)
+        if (
+          hasAlphanumeric &&
+          currentSession === recordingSessionIdRef.current &&
+          !isSubmittingRef.current &&
+          !querySentRef.current &&
+          !inputRef.current.trim()
+        ) {
+          const prefix = initialPromptRef.current ? initialPromptRef.current + ' ' : ''
+          const finalText = prefix + trimmed
+          inputRef.current = finalText
+          setInput(finalText)
+          setTimeout(() => {
+            if (textareaRef.current) {
+              textareaRef.current.focus()
+              const len = textareaRef.current.value.length
+              textareaRef.current.setSelectionRange(len, len)
+            }
+          }, 30)
+          return
+        }
+      } catch (e: any) {
+        console.warn('[Composer] Whisper fallback notice:', e)
+      }
+    }
+
+    // 4. Only if ABSOLUTELY NOTHING was recognized, nothing was submitted, and textarea is empty:
+    if (
+      currentSession === recordingSessionIdRef.current &&
+      !isSubmittingRef.current &&
+      !querySentRef.current &&
+      !hasLiveDictatedRef.current &&
+      !inputRef.current.trim()
+    ) {
+      onError('Could not detect speech. Please speak into your microphone and try again.')
+    }
   }
 
   // Main Submit Action
@@ -268,14 +529,61 @@ export default function Composer({
       return
     }
 
-    const queryText = input.trim()
+    // Immediately invalidate and abort any background audio recording or Whisper fallbacks
+    recordingSessionIdRef.current += 1
+    isRecordingRef.current = false
+    setRecording(false)
+
+    if (speechRecRef.current) {
+      try {
+        speechRecRef.current.onresult = null
+        speechRecRef.current.onend = null
+        speechRecRef.current.onerror = null
+        speechRecRef.current.stop()
+      } catch {}
+      speechRecRef.current = null
+    }
+
+    if (recorderRef.current) {
+      try {
+        recorderRef.current.onstop = null
+        recorderRef.current.ondataavailable = null
+        if (recorderRef.current.state !== 'inactive') {
+          recorderRef.current.stop()
+        }
+      } catch {}
+      recorderRef.current = null
+    }
+
+    if (streamRef.current) {
+      try {
+        streamRef.current.getTracks().forEach((t) => t.stop())
+      } catch {}
+      streamRef.current = null
+    }
+
+    chunksRef.current = []
+    accumulatedSpeechRef.current = ''
+    lastSessionFinalRef.current = ''
+    initialPromptRef.current = ''
+    hasLiveDictatedRef.current = false
+    isSubmittingRef.current = true
+    querySentRef.current = true
+
+    const queryText = (inputRef.current || input).trim()
+    inputRef.current = ''
+    setInput('')
+
+    // Reset submitting lock after safe delay
+    setTimeout(() => {
+      isSubmittingRef.current = false
+    }, 1500)
 
     // 1. Image staged: execute image query with custom prompt
     const stagedImage = stagedFiles.find((f) => f.type === 'image')
     if (stagedImage) {
       onImageQuery(stagedImage.file, queryText)
       setStagedFiles((prev) => prev.filter((f) => f.id !== stagedImage.id))
-      setInput('')
       return
     }
 
@@ -284,7 +592,6 @@ export default function Composer({
     if (stagedAudio) {
       onAudioQuery(stagedAudio.file, queryText)
       setStagedFiles((prev) => prev.filter((f) => f.id !== stagedAudio.id))
-      setInput('')
       return
     }
 
@@ -293,7 +600,6 @@ export default function Composer({
     if (stagedDocs.length > 0 && onIngestAndQuery) {
       const docFiles = stagedDocs.map((d) => d.file)
       setStagedFiles((prev) => prev.filter((f) => f.type !== 'document'))
-      setInput('')
       await onIngestAndQuery(docFiles, queryText || 'Summarize the attached document(s) and highlight main points.')
       return
     }
@@ -301,7 +607,6 @@ export default function Composer({
     // 4. Text query only
     if (!queryText) return
     onSubmitText(queryText)
-    setInput('')
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -397,9 +702,9 @@ export default function Composer({
                       {formatSize(att.file.size)} &middot; {att.type}
                     </p>
                     {att.type === 'audio' && (
-                      <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.2 text-[9px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" title="Saved audio file is processed on-premise using local Whisper (/api/transcribe)">
-                        <ShieldCheck className="h-2.5 w-2.5" />
-                        Local Whisper (Air-Gapped Processing)
+                      <span className="inline-flex items-center gap-1 rounded bg-surface-100 dark:bg-surface-800 px-1.5 py-0.5 text-[9px] font-medium text-surface-600 dark:text-surface-300">
+                        <AudioLines className="h-2.5 w-2.5 text-brand-600 dark:text-brand-400" />
+                        Audio &middot; Local Whisper
                       </span>
                     )}
                   </div>
@@ -441,34 +746,25 @@ export default function Composer({
           </div>
         )}
 
-        {/* Live Audio Recording Status Banner */}
+        {/* Live Audio Recording Indicator */}
         {recording && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full bg-rose-600 animate-ping" />
-                <span className="font-semibold">Recording Voice Input...</span>
-                <span className="font-mono font-medium">({recordingDuration}s)</span>
-              </div>
-              <button
-                type="button"
-                onClick={stopRecording}
-                className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1 text-xs font-semibold text-white hover:bg-rose-700 shadow-xs"
-              >
-                <StopCircle className="h-3.5 w-3.5" />
-                <span>Done Recording</span>
-              </button>
+          <div className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50/80 px-3.5 py-2 text-xs text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200 animate-in fade-in duration-150">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
+              </span>
+              <span className="font-medium">Recording audio...</span>
+              <span className="font-mono text-rose-600 dark:text-rose-300">({recordingDuration}s)</span>
             </div>
-            {/* Speech Recognition & Offline Privacy Disclosure */}
-            <div className="flex items-start gap-2 text-[11px] text-surface-700 dark:text-surface-300 border-t border-rose-200/80 dark:border-rose-900/60 pt-2.5 leading-relaxed bg-white/70 dark:bg-surface-850/70 rounded-lg p-2.5 mt-2">
-              <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5 text-brand-600 dark:text-brand-400" />
-              <div>
-                <p className="font-semibold text-surface-900 dark:text-surface-100">Live Dictation uses Browser Speech Service (Online)</p>
-                <p className="text-[10px] text-surface-600 dark:text-surface-400 mt-0.5">
-                  Real-time dictation text streams through your browser vendor's recognition engine (Google/Apple cloud). Once you click "Done Recording", the saved audio file is processed 100% locally and privately by on-premises Whisper with zero cloud egress.
-                </p>
-              </div>
-            </div>
+            <button
+              type="button"
+              onClick={stopRecording}
+              className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700 shadow-sm"
+            >
+              <StopCircle className="h-3.5 w-3.5" />
+              <span>Done</span>
+            </button>
           </div>
         )}
 
@@ -523,8 +819,9 @@ export default function Composer({
             <button
               type="button"
               onClick={startRecording}
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100 hover:text-surface-800 dark:text-surface-400 dark:hover:bg-surface-700 dark:hover:text-surface-200 transition-colors"
-              title="Record voice instruction"
+              disabled={busy}
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-surface-500 hover:bg-surface-100 hover:text-surface-800 disabled:opacity-40 disabled:cursor-not-allowed dark:text-surface-400 dark:hover:bg-surface-700 dark:hover:text-surface-200 transition-colors"
+              title={busy ? "Generating response..." : "Record voice instruction"}
             >
               <Mic className="h-4 w-4" />
             </button>
@@ -582,7 +879,10 @@ export default function Composer({
             ref={textareaRef}
             rows={1}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              inputRef.current = e.target.value
+              setInput(e.target.value)
+            }}
             onKeyDown={handleKeyDown}
             placeholder={
               stagedFiles.length > 0

@@ -67,9 +67,9 @@ if ($Foreground) {
     Write-Host "  -> Running in foreground mode (Press Ctrl+C to terminate)..." -ForegroundColor Cyan
     & $PythonExe -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1
 } else {
-    # Launch in a persistent PowerShell console with -NoExit and native console output
-    $serverCmd = "`$host.UI.RawUI.WindowTitle = 'Multimodal Offline RAG Server (Port 8000)'; `$ErrorActionPreference = 'Continue'; cd '$RootDir'; & '$PythonExe' -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1"
-    $proc = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoExit", "-Command", $serverCmd -PassThru -WindowStyle Normal
+    # Launch in a persistent console window that never closes automatically on exit or error
+    $batPath = "$RootDir\scripts\run-server.bat"
+    $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "`"$batPath`"" -PassThru -WindowStyle Normal
 
     # Save PID
     $proc.Id | Out-File -FilePath "$StorageDir\rag_server.pid" -Encoding ascii

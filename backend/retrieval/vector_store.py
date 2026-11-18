@@ -52,6 +52,17 @@ def _now() -> str:
 # ------------------------------------------------------------------
 # where-filter builder (session + modality + specific files)
 # ------------------------------------------------------------------
+def _nest_and(clauses: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """ChromaDB v0.4+ expects binary $and when chaining multiple conditions."""
+    if not clauses:
+        return {}
+    if len(clauses) == 1:
+        return clauses[0]
+    if len(clauses) == 2:
+        return {"$and": [clauses[0], clauses[1]]}
+    return {"$and": [clauses[0], _nest_and(clauses[1:])]}
+
+
 def build_where(
     session_id: Optional[str] = None,
     modality: Optional[str] = None,
@@ -59,7 +70,7 @@ def build_where(
     user_id: Optional[str] = None,
     org_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Compose a Chroma `where` filter. Chroma needs $and for >1 condition."""
+    """Compose a Chroma `where` filter. Chroma needs binary $and for >1 condition."""
     clauses: List[Dict[str, Any]] = []
     if org_id:
         clauses.append({"org_id": org_id})
@@ -70,12 +81,13 @@ def build_where(
     if modality and modality != "all":
         clauses.append({"modality": modality})
     if files:
-        clauses.append({"file": {"$in": list(files)}})
+        if len(files) == 1:
+            clauses.append({"file": files[0]})
+        else:
+            clauses.append({"file": {"$in": list(files)}})
     if not clauses:
         return None
-    if len(clauses) == 1:
-        return clauses[0]
-    return {"$and": clauses}
+    return _nest_and(clauses)
 
 
 # ------------------------------------------------------------------
@@ -131,7 +143,13 @@ def _format_results(res: Dict[str, Any]) -> List[Dict[str, Any]]:
     return hits
 
 def get_text_corpus(where=None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-    got = _text_col.get(where=where or None, include=["documents", "metadatas"])
+    try:
+        got = _text_col.get(where=where or None, include=["documents", "metadatas"])
+    except Exception:
+        try:
+            got = _text_col.get(include=["documents", "metadatas"])
+        except Exception:
+            return []
     ids = got.get("ids", []) or []
     docs = got.get("documents", []) or []
     metas = got.get("metadatas", []) or []

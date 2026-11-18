@@ -51,6 +51,8 @@ export interface DocumentContentResponse {
   content?: string
   raw_url: string
   file_size: number
+  caption?: string
+  ocr_text?: string
 }
 
 export interface Hit {

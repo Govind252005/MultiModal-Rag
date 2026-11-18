@@ -621,7 +621,7 @@ export const ModelSettingsView: React.FC<ModelSettingsViewProps> = ({
                           className="w-full rounded-lg border border-surface-200 bg-white px-2 py-1.5 text-xs text-surface-800 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-100 outline-none focus:ring-1 focus:ring-brand-500"
                         >
                           {(providerModels[p.name] || [{ id: p.model, name: p.model }]).map((m) => (
-                            <option key={m.id} value={m.id}>
+                            <option key={m.id} value={m.id} className="dark:bg-surface-850 dark:text-surface-100">
                               {m.name || m.id}
                             </option>
                           ))}

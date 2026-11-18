@@ -26,9 +26,12 @@ if _data_home_env:
     DATA_HOME = Path(_data_home_env).expanduser().resolve()
 elif _FROZEN:
     _appdata = os.getenv("LOCALAPPDATA") or os.getenv("XDG_DATA_HOME") or str(Path.home())
-    DATA_HOME = Path(_appdata) / "MultimodalRag"
+    DATA_HOME = Path(_appdata) / "MultimodalRag_V2"
 else:
     DATA_HOME = BASE_DIR
+
+DEFAULT_PORT = int(os.getenv("RAG_PORT", os.getenv("PORT", "8001")))
+DEFAULT_HOST = os.getenv("RAG_HOST", os.getenv("HOST", "127.0.0.1"))
 
 DATA_DIR = DATA_HOME / "data"
 STORE_DIR = DATA_HOME / "storage"
@@ -103,10 +106,10 @@ OCR_CHUNK_WORDS = 120
 # Use "medium" if you want multilingual speech.
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium")
 WHISPER_COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
-WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "en")  # change to hi, etc. if needed
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "")  # empty = auto-detect English, Hindi, etc.
 WHISPER_TASK = os.getenv("WHISPER_TASK", "transcribe")
 WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "8"))
-WHISPER_VAD_FILTER = os.getenv("WHISPER_VAD_FILTER", "1") == "1"
+WHISPER_VAD_FILTER = os.getenv("WHISPER_VAD_FILTER", "0") == "1"
 WHISPER_CONDITION_ON_PREVIOUS_TEXT = os.getenv("WHISPER_CONDITION_ON_PREVIOUS_TEXT", "0") == "1"
 WHISPER_INITIAL_PROMPT = os.getenv("WHISPER_INITIAL_PROMPT", "")
 # Smaller windows = more precise "play from HH:MM:SS" timecodes.
@@ -122,14 +125,15 @@ CHUNK_OVERLAP_WORDS = int(os.getenv("CHUNK_OVERLAP_WORDS", "30"))
 # instead of silently mixed with new ones. Bump INGESTION_PIPELINE_VERSION
 # whenever parsing/chunking logic changes materially enough that old
 # chunks should be considered outdated even though the source file didn't.
-INGESTION_PIPELINE_VERSION = os.getenv("INGESTION_PIPELINE_VERSION", "3")
+INGESTION_PIPELINE_VERSION = os.getenv("INGESTION_PIPELINE_VERSION", "4")
 # ------------------------------------------------------------------ Chunking strategy
 CHUNKING_STRATEGY = os.getenv("CHUNKING_STRATEGY", "semantic")  # semantic | word
 SEMANTIC_MIN_WORDS = int(os.getenv("SEMANTIC_MIN_WORDS", "80"))
 SEMANTIC_SIM_THRESHOLD = float(os.getenv("SEMANTIC_SIM_THRESHOLD", "0.58"))
 # ------------------------------------------------------------------ Retrieval
 # ------------------------------------------------------------------ Retrieval fusion
-DEFAULT_TOP_K = int(os.getenv("DEFAULT_TOP_K", "10"))
+DEFAULT_TOP_K = int(os.getenv("DEFAULT_TOP_K", "7"))
+FINAL_CONTEXT_TOP_K = int(os.getenv("FINAL_CONTEXT_TOP_K", "7"))
 DENSE_CANDIDATES = int(os.getenv("DENSE_CANDIDATES", "40"))
 BM25_CANDIDATES = int(os.getenv("BM25_CANDIDATES", "40"))
 FUSION_RRF_K = int(os.getenv("FUSION_RRF_K", "60"))
@@ -145,8 +149,13 @@ RERANK_WINDOW = int(os.getenv("RERANK_WINDOW", "20"))
 RERANK_MIN_SCORE = float(os.getenv("RERANK_MIN_SCORE", "-5.5"))
 
 # Offline & Telemetry Compliance (Air-gap ready)
-os.environ.setdefault("HF_HUB_OFFLINE", os.getenv("OFFLINE_MODE", "1"))
-os.environ.setdefault("TRANSFORMERS_OFFLINE", os.getenv("OFFLINE_MODE", "1"))
+_offline = os.getenv("OFFLINE_MODE", "0") == "1"
+if _offline:
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+else:
+    os.environ.pop("HF_HUB_OFFLINE", None)
+    os.environ.pop("TRANSFORMERS_OFFLINE", None)
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 
 # ------------------------------------------------------------------ LLM (Ollama)
@@ -156,8 +165,9 @@ os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b-instruct")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
-# Keep the local prompt budget large enough for retrieved evidence while
-# avoiding unnecessary prompt processing for short grounded answers.
+LLM_TOP_P = float(os.getenv("LLM_TOP_P", "0.85"))
+LLM_REPEAT_PENALTY = float(os.getenv("LLM_REPEAT_PENALTY", "1.1"))
+# Expanded context budget (8192) ensures full multi-chunk and multi-chapter recall without premature truncation.
 LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", os.getenv("OLLAMA_NUM_CTX", "8192")))
 # Strict RAG answers should be short; callers can raise this for long answers.
 OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "1024"))
@@ -170,11 +180,9 @@ OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
 # operation must have a timeout).
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "180"))
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "4"))
-# brief §13: context builder token budget. Enforced in
-# generation/prompt_templates.py::truncate_hits_to_budget — applied once,
-# before both citations and the prompt are built, so what's cited always
-# matches what the LLM actually saw.
-MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "4096"))
+# Context builder token budget: Enforced in generation/prompt_templates.py::truncate_hits_to_budget.
+# Sized to comfortably fit 7 full chunks (averaging ~500-600 tokens each) within the 8192 KV-cache window.
+MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "4800"))
 
 # ------------------------------------------------------------------ Redis cache
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -184,7 +192,12 @@ CACHE_ENABLED = os.getenv("CACHE_ENABLED", "1") == "1"
 # Comma-separated allowlist. Defaults to the app's own bundled-frontend
 # origins for local/desktop use; production deployments MUST set this
 # explicitly (brief §26 — never allow_origins=["*"] in production).
-_default_origins = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080"
+_default_origins = (
+    "http://localhost:5173,http://127.0.0.1:5173,"
+    "http://localhost:8001,http://127.0.0.1:8001,"
+    "http://localhost:8000,http://127.0.0.1:8000,"
+    "http://localhost:8080,http://127.0.0.1:8080"
+)
 ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("ALLOWED_ORIGINS", _default_origins).split(",") if o.strip()
 ]

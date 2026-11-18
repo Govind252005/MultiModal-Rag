@@ -112,18 +112,36 @@ if ($nvidiaGpu) {
 }
 
 $nvidiaSmi = Get-Command 'nvidia-smi.exe' -ErrorAction SilentlyContinue
+if (-not $nvidiaSmi -and (Test-Path "$env:SystemRoot\System32\nvidia-smi.exe")) {
+    $nvidiaSmi = "$env:SystemRoot\System32\nvidia-smi.exe"
+}
 if ($nvidiaSmi) {
     try {
-        $smiOutput = & nvidia-smi --query-gpu=memory.total,driver_version --format=csv,noheader 2>$null
+        $smiOutput = & $nvidiaSmi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>$null
         if ($smiOutput) {
-            $vramGB = [Math]::Round(([double]($smiOutput -split ',')[0] -replace '[^0-9.]', '') / 1024)
+            $parts = $smiOutput -split ','
+            if ($parts.Count -ge 2) {
+                if ($gpuName -eq 'None' -or -not $gpuAvailable) {
+                    $gpuName = $parts[0].Trim()
+                    $gpuAvailable = $true
+                }
+                $rawVram = $parts[1] -replace '[^0-9.]', ''
+                if ($rawVram) {
+                    $vramGB = [Math]::Round([double]$rawVram / 1024)
+                }
+            }
         }
-        $nvccVersionOutput = & nvidia-smi 2>$null | Select-String 'CUDA Version:\s*([\d\.]+)'
+        $nvccVersionOutput = & $nvidiaSmi 2>$null | Select-String 'CUDA (?:UMD )?Version:\s*([\d\.]+)'
         if ($nvccVersionOutput) {
             $cudaVersion = $nvccVersionOutput.Matches[0].Groups[1].Value
             $cudaAvailable = $true
         }
     } catch { }
+}
+
+if (-not $cudaAvailable -and ($nvidiaGpu -or $gpuName -match 'NVIDIA') -and (Test-Path "$env:SystemRoot\System32\nvcuda.dll")) {
+    $cudaAvailable = $true
+    if (-not $cudaVersion) { $cudaVersion = 'Available' }
 }
 
 Write-IniSection $OutputPath 'GPU'

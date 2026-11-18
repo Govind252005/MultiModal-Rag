@@ -18,7 +18,7 @@ _HINGLISH_STOPWORDS = {
 }
 
 # Distinguishing stopwords for major Latin European languages
-_SPANISH_WORDS = {"de", "la", "el", "en", "y", "a", "los", "del", "se", "las", "por", "un", "para", "con", "no", "una", "su", "al", "es"}
+_SPANISH_WORDS = {"de", "la", "el", "en", "y", "a", "los", "del", "se", "las", "por", "un", "para", "con", "no", "una", "su", "al", "es", "que", "como", "cual", "quien", "donde"}
 _FRENCH_WORDS = {"de", "la", "le", "et", "les", "des", "en", "un", "du", "une", "que", "est", "pour", "qui", "dans", "ce", "il", "pas"}
 _GERMAN_WORDS = {"der", "die", "und", "in", "den", "von", "zu", "das", "mit", "sich", "des", "auf", "für", "ist", "im", "dem", "nicht"}
 
@@ -30,6 +30,13 @@ def detect_script(text: str) -> str:
 
     counts = {
         "Devanagari": len(re.findall(r"[\u0900-\u097F]", text)),
+        "Bengali": len(re.findall(r"[\u0980-\u09FF]", text)),
+        "Gurmukhi": len(re.findall(r"[\u0A00-\u0A7F]", text)),
+        "Gujarati": len(re.findall(r"[\u0A80-\u0AFF]", text)),
+        "Tamil": len(re.findall(r"[\u0B80-\u0BFF]", text)),
+        "Telugu": len(re.findall(r"[\u0C00-\u0C7F]", text)),
+        "Kannada": len(re.findall(r"[\u0C80-\u0CFF]", text)),
+        "Malayalam": len(re.findall(r"[\u0D00-\u0D7F]", text)),
         "Arabic": len(re.findall(r"[\u0600-\u06FF\u0750-\u077F]", text)),
         "CJK": len(re.findall(r"[\u4E00-\u9FFF\u3400-\u4DBF]", text)),
         "Latin": len(re.findall(r"[A-Za-z\u00C0-\u024F]", text)),
@@ -51,6 +58,21 @@ def detect_language(text: str) -> Dict[str, Any]:
 
     if script == "Devanagari":
         return {"language": "hi", "script": "Devanagari", "confidence": 0.99}
+
+    if script == "Bengali":
+        return {"language": "bn", "script": "Bengali", "confidence": 0.99}
+    if script == "Gurmukhi":
+        return {"language": "pa", "script": "Gurmukhi", "confidence": 0.99}
+    if script == "Gujarati":
+        return {"language": "gu", "script": "Gujarati", "confidence": 0.99}
+    if script == "Tamil":
+        return {"language": "ta", "script": "Tamil", "confidence": 0.99}
+    if script == "Telugu":
+        return {"language": "te", "script": "Telugu", "confidence": 0.99}
+    if script == "Kannada":
+        return {"language": "kn", "script": "Kannada", "confidence": 0.99}
+    if script == "Malayalam":
+        return {"language": "ml", "script": "Malayalam", "confidence": 0.99}
 
     if script == "Arabic":
         return {"language": "ar", "script": "Arabic", "confidence": 0.99}
@@ -77,14 +99,15 @@ def detect_language(text: str) -> Dict[str, Any]:
     sp_matches = sum(1 for w in words if w in _SPANISH_WORDS)
     fr_matches = sum(1 for w in words if w in _FRENCH_WORDS)
     de_matches = sum(1 for w in words if w in _GERMAN_WORDS)
+    has_spanish_accent = bool(re.search(r"[áéíóúñ¿¡]", clean, re.IGNORECASE))
 
     scores = {
-        "es": sp_matches,
+        "es": sp_matches + (2 if has_spanish_accent else 0),
         "fr": fr_matches,
         "de": de_matches,
     }
     best_lang, best_score = max(scores.items(), key=lambda x: x[1])
-    if best_score >= 2 and (best_score / total_words) > 0.15:
+    if best_score >= 2 or (has_spanish_accent and sp_matches >= 1) or (best_score >= 1 and (best_score / total_words) > 0.15):
         return {
             "language": best_lang,
             "script": "Latin",

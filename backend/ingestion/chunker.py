@@ -54,6 +54,15 @@ def _is_table_row(line: str) -> bool:
     return stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2
 
 
+def _is_code_like(text: str) -> bool:
+    """Detect source code blocks that should remain atomic and not be split on periods."""
+    stripped = text.strip()
+    return bool(re.search(
+        r"(?:#include|using\s+namespace|int\s+main|void\s+main|def\s+\w+\s*\(|class\s+\w+|public\s+static|std::|cout\s*<<|cin\s*>>|System\.out\.println)",
+        stripped
+    )) or (stripped.count("{") > 0 and stripped.count("{") == stripped.count("}"))
+
+
 def _is_heading(line: str) -> bool:
     """Check if a line represents a Markdown heading or short section label."""
     stripped = line.strip()
@@ -73,6 +82,12 @@ def _split_unicode_sentences(text: str) -> List[str]:
 
     # If it's a table block, preserve all rows together
     lines = text.splitlines()
+    if len(lines) > 1 and all(_is_table_row(l) for l in lines if l.strip()):
+        return [text]
+
+    # If it's a code block, preserve the code block intact
+    if _is_code_like(text):
+        return [text]
     if len(lines) > 1 and all(_is_table_row(l) for l in lines if l.strip()):
         return [text]
 
@@ -164,7 +179,17 @@ def _partition_structural_blocks(text: str) -> List[str]:
         else:
             blocks.append(b)
 
-    return blocks
+    # Coalesce adjacent code-like blocks (e.g. helper function + int main()) up to 320 words
+    coalesced_blocks: List[str] = []
+    for b in blocks:
+        if coalesced_blocks and _is_code_like(coalesced_blocks[-1]) and _is_code_like(b):
+            combined = coalesced_blocks[-1] + "\n\n" + b
+            if len(combined.split()) <= 320:
+                coalesced_blocks[-1] = combined
+                continue
+        coalesced_blocks.append(b)
+
+    return coalesced_blocks
 
 
 def _pack_sentences(
@@ -301,6 +326,41 @@ def _semantic_chunks(
     return safe
 
 
+def _chunk_table_block(block: str, max_words: int = 280) -> List[str]:
+    """Split a large Markdown table into chunks while propagating column headers to every chunk."""
+    b_lines = [l.strip() for l in block.splitlines() if l.strip()]
+    meta_prefix = "\n".join([l for l in b_lines if l.startswith("[") and l.endswith("]")])
+    if meta_prefix:
+        meta_prefix += "\n"
+    table_rows = [l for l in b_lines if _is_table_row(l)]
+    if len(table_rows) < 2:
+        return [block]
+
+    hdr = table_rows[0]
+    sep = table_rows[1] if "---" in table_rows[1] else ("| " + " | ".join(["---"] * max(1, hdr.count("|") - 1)) + " |")
+    data_rows = table_rows[2:] if "---" in table_rows[1] else table_rows[1:]
+
+    if len(block.split()) > max_words and len(data_rows) > 1:
+        chunks: List[str] = []
+        cur_rows: List[str] = []
+        cur_w = len((meta_prefix + hdr + "\n" + sep).split())
+        for dr in data_rows:
+            rw = len(dr.split())
+            if cur_rows and (cur_w + rw > max_words):
+                chunk_str = f"{meta_prefix}{hdr}\n{sep}\n" + "\n".join(cur_rows)
+                chunks.append(chunk_str)
+                cur_rows = [dr]
+                cur_w = len((meta_prefix + hdr + "\n" + sep).split()) + rw
+            else:
+                cur_rows.append(dr)
+                cur_w += rw
+        if cur_rows:
+            chunk_str = f"{meta_prefix}{hdr}\n{sep}\n" + "\n".join(cur_rows)
+            chunks.append(chunk_str)
+        return chunks
+    return [block]
+
+
 def chunk_text(
     text: str,
     size: int = config.CHUNK_SIZE_WORDS,
@@ -310,6 +370,10 @@ def chunk_text(
     text = (text or "").strip()
     if not text:
         return []
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if lines and (_is_table_row(lines[0]) or any(_is_table_row(l) for l in lines[:3])):
+        return _chunk_table_block(text, max_words=280)
 
     if config.CHUNKING_STRATEGY == "semantic":
         try:
@@ -327,8 +391,10 @@ def chunk_text(
     all_chunks: List[str] = []
 
     for block in blocks:
-        if _is_table_row(block.splitlines()[0]):
-            # Preserve table blocks intact
+        b_lines = [l.strip() for l in block.splitlines() if l.strip()]
+        if b_lines and (_is_table_row(b_lines[0]) or any(_is_table_row(l) for l in b_lines[:3])):
+            all_chunks.extend(_chunk_table_block(block, max_words=280))
+        elif _is_code_like(block) and len(block.split()) <= 320:
             all_chunks.append(block)
         else:
             sentences = _split_unicode_sentences(block)

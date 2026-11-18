@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Query-to-Citation End-to-End Sequence",
+    "output": "VIVA_VISUAL_DIAGRAMS/03_query_to_citation_sequence.html",
+    "viewBox": [1020, 880],
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "standard"
+  },
+  "participants": [
+    { "id": "client", "type": "external", "label": "Client User", "sublabel": "Browser / ChatPanel" },
+    { "id": "viewer", "type": "frontend", "label": "DocumentViewer", "sublabel": "React .textLayer" },
+    { "id": "router", "type": "backend", "label": "FastAPI Router", "sublabel": "router.py / main.py" },
+    { "id": "search", "type": "backend", "label": "Hybrid Search", "sublabel": "search.py (RRF)" },
+    { "id": "indexes", "type": "database", "label": "Chroma & BM25", "sublabel": "Dense + Lexical" },
+    { "id": "reranker", "type": "backend", "label": "Cross-Encoder", "sublabel": "Top-7 Neural Ranker" },
+    { "id": "llm", "type": "backend", "label": "LLM Engine", "sublabel": "answer.py + Ollama" }
+  ],
+  "segments": [
+    { "from": 150, "to": 350, "label": "1. Intent Routing & Dual Retrieval" },
+    { "from": 370, "to": 470, "label": "2. Neighbor Coalescing & Cross-Encoder Reranking" },
+    { "from": 490, "to": 650, "label": "3. LLM Synthesis & Evidence Span Locking" },
+    { "from": 670, "to": 800, "label": "4. Interactive Citation & .textLayer Highlighting" }
+  ],
+  "messages": [
+    { "from": "client", "to": "router", "y": 180, "label": "POST /chat (User Query)", "variant": "emphasis" },
+    { "from": "router", "to": "search", "y": 230, "label": "Intent routing & tokenized query" },
+    { "from": "search", "to": "indexes", "y": 280, "label": "Bi-encoder (Chroma) + BM25 v2_stemming" },
+    { "from": "indexes", "to": "search", "y": 330, "label": "Raw chunks + get_neighbor_chunks", "variant": "return" },
+    
+    { "from": "search", "to": "reranker", "y": 395, "label": "Devanagari boosted candidate batches", "variant": "emphasis" },
+    { "from": "reranker", "to": "search", "y": 445, "label": "Top-7 neural scored passages", "variant": "return" },
+    
+    { "from": "search", "to": "llm", "y": 510, "label": "Top-7 context (MAX_CONTEXT_TOKENS=4800)", "variant": "emphasis" },
+    { "from": "llm", "to": "router", "y": 570, "label": "stream tokens + find_primary_evidence_span", "variant": "return" },
+    { "from": "router", "to": "client", "y": 620, "label": "SSE stream with [1] citation pills", "variant": "return" },
+    
+    { "from": "client", "to": "viewer", "y": 700, "label": "Click citation pill -> load target page", "variant": "emphasis" },
+    { "from": "viewer", "to": "client", "y": 760, "label": "findExactHighlightRange -> .textLayer yellow highlight", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "client", "from": 170, "to": 630, "type": "external" },
+    { "participant": "router", "from": 175, "to": 625, "type": "backend" },
+    { "participant": "search", "from": 225, "to": 515, "type": "backend" },
+    { "participant": "indexes", "from": 275, "to": 335, "type": "database" },
+    { "participant": "reranker", "from": 390, "to": 450, "type": "backend" },
+    { "participant": "llm", "from": 505, "to": 575, "type": "backend" },
+    { "participant": "client", "from": 695, "to": 770, "type": "external" },
+    { "participant": "viewer", "from": 695, "to": 765, "type": "frontend" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Intent Routing & Coalescing",
+      "items": [
+        "Router inspects query for keyword vs semantic characteristics",
+        "ChromaDB and BM25 v2_stemming execute in parallel",
+        "get_neighbor_chunks coalesces adjacent text chunks to preserve surrounding context",
+        "Devanagari regex boosts matching Indic queries against localized documents"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Top-7 Reranking & LLM Guardrails",
+      "items": [
+        "Cross-Encoder re-scores candidates with full cross-attention",
+        "MAX_CONTEXT_TOKENS=4800 bounds context window for qwen2.5:7b-instruct",
+        "find_primary_evidence_span extracts exact substring quote with bounding box"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Contiguous .textLayer Highlighting",
+      "items": [
+        "Clicking citation pill [1] navigates DocumentViewer to target page",
+        "findExactHighlightRange resolves hyphenation and line-break artifacts",
+        "Active textLayer spans glow in yellow with auto-scroll focus"
+      ]
+    }
+  ]
+}

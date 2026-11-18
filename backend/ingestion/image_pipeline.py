@@ -19,6 +19,7 @@ open its citation.
 
 from __future__ import annotations
 
+import re
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -61,6 +62,58 @@ def caption_image(image: Image.Image) -> str:
     return processor.decode(out[0], skip_special_tokens=True).strip()
 
 
+# ------------------------------------------------------------------ OCR Cleaning
+_OCR_NOISE_GLYPHS = {
+    "×", "x", "X", "+", "-", "□", "■", "▢", "←", "→", "↑", "↓", "↔",
+    "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩",
+    "*", "•", "·", "品", "回", "狗", "自", "O", "o", "Oo", "V", "v",
+    "M", "G", "C", "D", "Q", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "|", "\\", "/", ">", "<", "~", "^", "_", ":", ";", "=", "#", "@",
+    "“", "”", "‘", "’", "«", "»", "©", "®", "™", "§", "¶", "…", "—", "–",
+}
+
+
+def clean_ocr_lines(raw_lines: List[str]) -> List[str]:
+    """Clean and filter noisy OCR output, removing browser chrome buttons,
+    isolated symbols, glyph noise, and trailing tab close icons."""
+    cleaned: List[str] = []
+    seen = set()
+
+    for raw in raw_lines:
+        line = (raw or "").strip()
+        if not line:
+            continue
+
+        # Strip trailing close buttons or single glyphs commonly appended to tabs (e.g., "Tab Name ×" or "Tab Name X")
+        line = re.sub(r"\s+[×xX+□■]\s*$", "", line).strip()
+        # Strip leading bullet/arrow symbols if any
+        line = re.sub(r"^[•·\->←→*]\s*", "", line).strip()
+
+        if not line:
+            continue
+
+        # Drop standalone noise glyphs or single characters
+        if line in _OCR_NOISE_GLYPHS:
+            continue
+
+        # Drop 1-character or 2-character strings that don't contain any word letters
+        if len(line) <= 2 and not any(c.isalpha() for c in line):
+            continue
+
+        # Drop lines that consist only of symbols / punctuation
+        if not any(c.isalnum() for c in line):
+            continue
+
+        # Deduplicate consecutive or identical lines (case-insensitive)
+        line_norm = line.lower()
+        if line_norm in seen:
+            continue
+        seen.add(line_norm)
+        cleaned.append(line)
+
+    return cleaned
+
+
 # ------------------------------------------------------------------ OCR
 def _upscale(image: Image.Image) -> Image.Image:
     """Upscale small images — the single biggest OCR accuracy win."""
@@ -76,6 +129,9 @@ def _load_paddleocr():
     if _paddleocr_reader is None:
         with _paddleocr_lock:
             if _paddleocr_reader is None:
+                import os
+                os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "False"
+                import torch
                 from paddleocr import PaddleOCR
 
                 _paddleocr_reader = PaddleOCR(
@@ -92,9 +148,12 @@ def _load_paddleocr():
 def _ocr_paddleocr(image: Image.Image) -> str:
     ocr = _load_paddleocr()
 
+    # Ensure strictly 3-channel RGB image
     img = _upscale(image.convert("RGB"))
+    # PaddleX predictor expects a 3-channel uint8 array in BGR format
+    arr = np.array(img)[:, :, ::-1]
 
-    result = ocr.predict(np.array(img))
+    result = ocr.predict(arr)
 
     texts = []
 
@@ -105,8 +164,15 @@ def _ocr_paddleocr(image: Image.Image) -> str:
                 for text in page["rec_texts"]
                 if str(text).strip()
             )
+        elif hasattr(page, "rec_texts"):
+            texts.extend(
+                str(text).strip()
+                for text in page.rec_texts
+                if str(text).strip()
+            )
 
-    return "\n".join(texts).strip()
+    cleaned = clean_ocr_lines(texts)
+    return "\n".join(cleaned).strip()
 
 
 def _ocr_tesseract(image: Image.Image) -> str:
@@ -125,7 +191,8 @@ def _ocr_tesseract(image: Image.Image) -> str:
         config=config.OCR_CONFIG,
     )
 
-    return " ".join(text.split()).strip()
+    cleaned = clean_ocr_lines(text.splitlines())
+    return "\n".join(cleaned).strip()
 
 
 def ocr_image(image: Image.Image) -> str:
@@ -198,6 +265,9 @@ def build_image_records(
     except Exception:
         ocr_text = ""
 
+    ocr_lines = clean_ocr_lines(ocr_text.splitlines()) if ocr_text else []
+    clean_ocr_str = "\n".join(ocr_lines)
+
     records: List[Dict[str, Any]] = []
 
     def _meta(extra: Dict[str, Any]) -> Dict[str, Any]:
@@ -210,28 +280,34 @@ def build_image_records(
         return m
 
     # 1) CLIP visual vector (documents=structured description)
-    visual_text = f"[Visual Image: {file}] Caption: {caption or 'N/A'}. OCR Text: {ocr_text[:300] or 'None'}"
+    visual_text = f"[Image File: {file}]\nVisual Description: {caption or 'Uploaded image/screenshot'}\nVisible OCR Text in Image: {clean_ocr_str or 'No readable text detected'}"
     records.append({
         "target": "image", "text": visual_text, "image": image,
         "metadata": _meta({"source_type": "image", "caption": caption}),
     })
 
-    # 2) OCR text -> CHUNKS (each independently citable)
-    ocr_chunks = chunk_text(ocr_text, size=config.OCR_CHUNK_WORDS, overlap=20) if ocr_text else []
+    # 2) OCR text -> CHUNKS (each independently citable with explicit image header)
+    ocr_chunks = chunk_text(clean_ocr_str, size=config.OCR_CHUNK_WORDS, overlap=20) if clean_ocr_str else []
     for i, ch in enumerate(ocr_chunks):
         if len(ch.strip()) < 3:
             continue
+        chunk_content = (
+            f"[Image File: {file} | Visual Scene Description: {caption or 'Screenshot / Graphic'}]\n"
+            f"Text / Content visible inside the image:\n{ch}"
+        )
         records.append({
-            "target": "text", "text": ch,
+            "target": "text", "text": chunk_content,
             "metadata": _meta({"source_type": "ocr", "chunk": i,
                                "chunk_total": len(ocr_chunks)}),
         })
 
     # 3) Caption as searchable text
-    records.append({
-        "target": "text", "text": caption,
-        "metadata": _meta({"source_type": "caption"}),
-    })
+    if caption:
+        caption_content = f"[Image File: {file}]\nVisual Scene Description: {caption}"
+        records.append({
+            "target": "text", "text": caption_content,
+            "metadata": _meta({"source_type": "caption"}),
+        })
     return records
 
 

@@ -52,59 +52,63 @@ def test_vector_and_lexical_tenant_isolation():
         "modality": "document",
     }
     
-    vector_store.add_text_chunks(
-        ids=["chunk_alpha_sec_1"],
-        embeddings=[[0.05] * 384],
-        documents=[doc_alpha],
-        metadatas=[meta_alpha],
-    )
+    try:
+        vector_store.add_text_chunks(
+            ids=["chunk_alpha_sec_1"],
+            embeddings=[[0.05] * 384],
+            documents=[doc_alpha],
+            metadatas=[meta_alpha],
+        )
 
-    # Ingest chunks tagged with org_beta
-    doc_beta = "Beta secret financial roadmap: Launching Quantum compute in Q3."
-    meta_beta = {
-        "file": "beta_finances.txt",
-        "session_id": "sess_beta_1",
-        "user_id": "u_beta_1",
-        "org_id": "org_beta",
-        "modality": "document",
-    }
-    
-    vector_store.add_text_chunks(
-        ids=["chunk_beta_sec_1"],
-        embeddings=[[0.05] * 384],
-        documents=[doc_beta],
-        metadatas=[meta_beta],
-    )
+        # Ingest chunks tagged with org_beta
+        doc_beta = "Beta secret financial roadmap: Launching Quantum compute in Q3."
+        meta_beta = {
+            "file": "beta_finances.txt",
+            "session_id": "sess_beta_1",
+            "user_id": "u_beta_1",
+            "org_id": "org_beta",
+            "modality": "document",
+        }
+        
+        vector_store.add_text_chunks(
+            ids=["chunk_beta_sec_1"],
+            embeddings=[[0.05] * 384],
+            documents=[doc_beta],
+            metadatas=[meta_beta],
+        )
 
-    # 1. Test vector search where filter
-    where_alpha = vector_store.build_where(org_id="org_alpha")
-    hits_alpha = vector_store.query_text([0.05] * 384, top_k=10, where=where_alpha)
-    hit_ids_alpha = [h["id"] for h in hits_alpha]
-    assert "chunk_alpha_sec_1" in hit_ids_alpha
-    assert "chunk_beta_sec_1" not in hit_ids_alpha
+        # 1. Test vector search where filter
+        where_alpha = vector_store.build_where(org_id="org_alpha")
+        hits_alpha = vector_store.query_text([0.05] * 384, top_k=10, where=where_alpha)
+        hit_ids_alpha = [h["id"] for h in hits_alpha]
+        assert "chunk_alpha_sec_1" in hit_ids_alpha
+        assert "chunk_beta_sec_1" not in hit_ids_alpha
 
-    where_beta = vector_store.build_where(org_id="org_beta")
-    hits_beta = vector_store.query_text([0.05] * 384, top_k=10, where=where_beta)
-    hit_ids_beta = [h["id"] for h in hits_beta]
-    assert "chunk_beta_sec_1" in hit_ids_beta
-    assert "chunk_alpha_sec_1" not in hit_ids_beta
+        where_beta = vector_store.build_where(org_id="org_beta")
+        hits_beta = vector_store.query_text([0.05] * 384, top_k=10, where=where_beta)
+        hit_ids_beta = [h["id"] for h in hits_beta]
+        assert "chunk_beta_sec_1" in hit_ids_beta
+        assert "chunk_alpha_sec_1" not in hit_ids_beta
 
-    # 2. Test lexical search filter
-    lex_alpha = lexical_index.search("secret", top_n=10, org_id="org_alpha")
-    lex_alpha_files = [h["metadata"].get("file") for h in lex_alpha]
-    assert "alpha_targets.txt" in lex_alpha_files
-    assert "beta_finances.txt" not in lex_alpha_files
+        # 2. Test lexical search filter
+        lex_alpha = lexical_index.search("secret", top_n=10, org_id="org_alpha")
+        lex_alpha_files = [h["metadata"].get("file") for h in lex_alpha]
+        assert "alpha_targets.txt" in lex_alpha_files
+        assert "beta_finances.txt" not in lex_alpha_files
 
-    lex_beta = lexical_index.search("secret", top_n=10, org_id="org_beta")
-    lex_beta_files = [h["metadata"].get("file") for h in lex_beta]
-    assert "beta_finances.txt" in lex_beta_files
-    assert "alpha_targets.txt" not in lex_beta_files
+        lex_beta = lexical_index.search("secret", top_n=10, org_id="org_beta")
+        lex_beta_files = [h["metadata"].get("file") for h in lex_beta]
+        assert "beta_finances.txt" in lex_beta_files
+        assert "alpha_targets.txt" not in lex_beta_files
 
-    # 3. Test list_files isolation
-    files_alpha = [f["file"] for f in vector_store.list_files(org_id="org_alpha")]
-    assert "alpha_targets.txt" in files_alpha
-    assert "beta_finances.txt" not in files_alpha
+        # 3. Test list_files isolation
+        files_alpha = [f["file"] for f in vector_store.list_files(org_id="org_alpha")]
+        assert "alpha_targets.txt" in files_alpha
+        assert "beta_finances.txt" not in files_alpha
 
-    files_beta = [f["file"] for f in vector_store.list_files(org_id="org_beta")]
-    assert "beta_finances.txt" in files_beta
-    assert "alpha_targets.txt" not in files_beta
+        files_beta = [f["file"] for f in vector_store.list_files(org_id="org_beta")]
+        assert "beta_finances.txt" in files_beta
+        assert "alpha_targets.txt" not in files_beta
+    finally:
+        vector_store.delete_session("sess_alpha_1")
+        vector_store.delete_session("sess_beta_1")

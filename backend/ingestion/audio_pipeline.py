@@ -16,6 +16,25 @@ from typing import Any, Dict, List, Tuple
 
 from backend import config
 
+# Compatibility fix: Modern PyAV (av >= 12) removed the 'metadata_errors' parameter in av.open.
+# faster-whisper passes metadata_errors="ignore", which causes TypeError on modern PyAV.
+try:
+    import av
+    _orig_av_open = av.open
+
+    def _safe_av_open(*args, **kwargs):
+        try:
+            return _orig_av_open(*args, **kwargs)
+        except TypeError as e:
+            if "metadata_errors" in str(e):
+                kwargs.pop("metadata_errors", None)
+                return _orig_av_open(*args, **kwargs)
+            raise
+
+    av.open = _safe_av_open
+except Exception:
+    pass
+
 _whisper = None
 _whisper_lock = threading.Lock()  # brief §100 — same double-checked-locking fix as embeddings.py
 
@@ -25,12 +44,74 @@ def _load_whisper():
     if _whisper is None:
         with _whisper_lock:
             if _whisper is None:
+                import os
                 from faster_whisper import WhisperModel
-                print(f"[audio] loading Whisper '{config.WHISPER_MODEL}' "
-                      f"({config.WHISPER_COMPUTE_TYPE}) on {config.DEVICE} ...")
-                _whisper = WhisperModel(
-                    config.WHISPER_MODEL, device=config.DEVICE,
-                    compute_type=config.WHISPER_COMPUTE_TYPE)
+
+                model_name = config.WHISPER_MODEL or "medium"
+                device = config.DEVICE
+                compute_type = config.WHISPER_COMPUTE_TYPE
+
+                def _instantiate(m_name, dev, c_type):
+                    try:
+                        return WhisperModel(m_name, device=dev, compute_type=c_type)
+                    except Exception as exc:
+                        exc_msg = str(exc)
+                        # If blocked by HF_HUB_OFFLINE or cache missing, enable online snapshot download
+                        if "HF_HUB_OFFLINE" in exc_msg or "cached snapshot" in exc_msg or "offline" in exc_msg.lower():
+                            print(f"[audio] Whisper '{m_name}' not in local HF cache. Temporarily enabling download...")
+                            try:
+                                import huggingface_hub.constants
+                                huggingface_hub.constants.HF_HUB_OFFLINE = False
+                            except Exception:
+                                pass
+                            orig_offline = os.environ.get("HF_HUB_OFFLINE")
+                            orig_tf_offline = os.environ.get("TRANSFORMERS_OFFLINE")
+                            try:
+                                os.environ["HF_HUB_OFFLINE"] = "0"
+                                os.environ["TRANSFORMERS_OFFLINE"] = "0"
+                                return WhisperModel(m_name, device=dev, compute_type=c_type)
+                            finally:
+                                if orig_offline is not None:
+                                    os.environ["HF_HUB_OFFLINE"] = orig_offline
+                                else:
+                                    os.environ.pop("HF_HUB_OFFLINE", None)
+                                if orig_tf_offline is not None:
+                                    os.environ["TRANSFORMERS_OFFLINE"] = orig_tf_offline
+                                else:
+                                    os.environ.pop("TRANSFORMERS_OFFLINE", None)
+                        raise
+
+                # Candidate models to try (prefer cached base/small if medium takes long)
+                candidates = [model_name]
+                for fb in ("base", "small", "tiny"):
+                    if fb not in candidates:
+                        candidates.append(fb)
+
+                last_exc = None
+                for candidate in candidates:
+                    try:
+                        print(f"[audio] loading Whisper '{candidate}' ({compute_type}) on {device} ...")
+                        _whisper = _instantiate(candidate, device, compute_type)
+                        print(f"[audio] Whisper '{candidate}' successfully loaded on {device}.")
+                        break
+                    except Exception as exc:
+                        print(f"[audio] Failed to load Whisper '{candidate}' on {device}: {exc}")
+                        last_exc = exc
+                        if device == "cuda":
+                            try:
+                                print(f"[audio] Falling back to CPU (int8) for Whisper '{candidate}'...")
+                                _whisper = _instantiate(candidate, "cpu", "int8")
+                                print(f"[audio] Whisper '{candidate}' successfully loaded on CPU.")
+                                break
+                            except Exception as cpu_exc:
+                                print(f"[audio] CPU fallback also failed for '{candidate}': {cpu_exc}")
+                                last_exc = cpu_exc
+
+                if _whisper is None:
+                    raise ValueError(
+                        f"Whisper model could not be loaded. Please ensure internet access is available "
+                        f"for the initial one-time model download. Detail: {last_exc}"
+                    )
     return _whisper
 
 
@@ -67,8 +148,33 @@ def transcribe(path: str) -> Tuple[List[Dict[str, Any]], str]:
     segs = [
         {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
         for s in segments
+        if any(c.isalnum() for c in s.text)
     ]
     lang = getattr(info, "language", "") or ""
+
+    # If VAD filter was active and produced no speech, retry without VAD
+    if not segs and config.WHISPER_VAD_FILTER:
+        try:
+            segments_no_vad, info_no_vad = model.transcribe(
+                path,
+                vad_filter=False,
+                beam_size=config.WHISPER_BEAM_SIZE,
+                language=config.WHISPER_LANGUAGE or None,
+                task=config.WHISPER_TASK,
+                condition_on_previous_text=config.WHISPER_CONDITION_ON_PREVIOUS_TEXT,
+                initial_prompt=config.WHISPER_INITIAL_PROMPT or None,
+                temperature=0.0,
+            )
+            segs = [
+                {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
+                for s in segments_no_vad
+                if any(c.isalnum() for c in s.text)
+            ]
+            if not lang:
+                lang = getattr(info_no_vad, "language", "") or ""
+        except Exception:
+            pass
+
     return segs, lang
 
 

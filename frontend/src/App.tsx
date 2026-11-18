@@ -33,6 +33,7 @@ import { DocumentManagement } from "./components/DocumentManagement";
 import { CollectionManagement } from "./components/CollectionManagement";
 import { ModelSettingsView } from "./components/ModelSettingsView";
 import { EnterpriseAdminView } from "./components/EnterpriseAdminView";
+import { DocumentPreviewModal } from "./components/DocumentPreviewModal";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -84,6 +85,7 @@ export default function App() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [files, setFiles] = useState<LibraryFile[]>([]);
+  const [dashboardFiles, setDashboardFiles] = useState<LibraryFile[]>([]);
   const [filesLoading] = useState(false);
   const [citations, setCitations] = useState<Citation[]>([]);
   const [explicitQuery, setExplicitQuery] = useState<string>('');
@@ -127,6 +129,7 @@ export default function App() {
   const [splitRatio, setSplitRatio] = useState<number>(50);
   const [error, setError] = useState<string | null>(null);
   const [composerQuery, setComposerQuery] = useState<string>('');
+  const [previewTarget, setPreviewTarget] = useState<{ filename: string; sessionId?: string; page?: number } | null>(null);
 
   const lastUserQuery = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -182,14 +185,64 @@ export default function App() {
     if (user) loadSessions();
   }, [user, loadSessions]);
 
-  // Load the most recent session's document library so the Dashboard displays genuine files
+  // Load document library across all user sessions and enterprise documents for the Dashboard overview
   useEffect(() => {
-    if (user && sessions.length > 0 && !currentId) {
-      api.getSession(sessions[0].id).then((s) => {
-        if (s.files && s.files.length > 0) setFiles(s.files);
-      }).catch(() => {});
+    if (!user || sessions.length === 0) {
+      setDashboardFiles([]);
+      return;
     }
-  }, [user, sessions, currentId]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const fileMap = new Map<string, LibraryFile>();
+
+        // 1. Fetch document library from all user chat sessions in parallel
+        const sessionResults = await Promise.allSettled(
+          sessions.map((s) => api.getSession(s.id))
+        );
+        if (cancelled) return;
+
+        for (const res of sessionResults) {
+          if (res.status === 'fulfilled' && res.value?.files) {
+            for (const f of res.value.files) {
+              const existing = fileMap.get(f.file);
+              if (!existing || (f.chunks && (!existing.chunks || f.chunks > existing.chunks))) {
+                fileMap.set(f.file, f);
+              }
+            }
+          }
+        }
+
+        // 2. Also check enterprise documents endpoint to catch any workspace-level uploads
+        try {
+          const docRes = await api.listDocuments();
+          if (!cancelled && docRes && docRes.documents) {
+            for (const d of docRes.documents) {
+              if (!fileMap.has(d.filename)) {
+                fileMap.set(d.filename, {
+                  file: d.filename,
+                  modality: (d.modality as any) || 'document',
+                  chunks: d.chunk_count || 0,
+                  ingested_at: d.created_at || '',
+                });
+              }
+            }
+          }
+        } catch {
+          // ignore if enterprise listDocuments fails
+        }
+
+        if (!cancelled) {
+          setDashboardFiles(Array.from(fileMap.values()));
+        }
+      } catch (err) {
+        console.error('Failed to aggregate dashboard files', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, sessions]);
 
   // Spec §51A.11: the backend is authoritative for "which provider is
   // currently active" — read it back on login instead of always assuming
@@ -374,6 +427,8 @@ export default function App() {
       const sid = await ensureSession();
       const res = await api.ingest(sid, list);
       setFiles(res.files);
+      const newlyAdded = list.map((f) => f.name);
+      setScope((prev) => (prev.files && prev.files.length > 0 ? { ...prev, files: Array.from(new Set([...prev.files, ...newlyAdded])) } : prev));
       loadSessions();
       loadHealth();
       const failed = res.ingested.filter((r) => r.error);
@@ -592,7 +647,8 @@ export default function App() {
   const transcribeBlob = useCallback(
     async (blob: Blob): Promise<string> => {
       const sid = await ensureSession();
-      const { text } = await api.transcribe(sid, blob);
+      const fname = blob instanceof File ? (blob as File).name : undefined;
+      const { text } = await api.transcribe(sid, blob, fname);
       return text;
     },
     [ensureSession],
@@ -643,7 +699,7 @@ export default function App() {
           user={user}
           health={health}
           sessions={sessions}
-          files={files}
+          files={dashboardFiles}
           activeProvider={activeProviderInfo}
           onStartChat={() => {
             newChat();
@@ -655,6 +711,9 @@ export default function App() {
           }}
           onOpenUpload={() => setLibraryOpen(true)}
           onNavigate={setView}
+          onPreviewDocument={(filename) => {
+            setPreviewTarget({ filename, sessionId: currentId || 'default' });
+          }}
         />
       )}
 
@@ -696,6 +755,7 @@ export default function App() {
               user={user}
               onRequestLogout={requestLogout}
               onNavigate={setView}
+              itemCount={dashboardFiles.length > 0 ? dashboardFiles.reduce((acc, f) => acc + (f.chunks || 0), 0) : 0}
             />
 
             {health && !health.llm_available && <LlmBanner />}
@@ -765,7 +825,7 @@ export default function App() {
                   style={typeof window !== 'undefined' && window.innerWidth >= 1024 ? { width: `${100 - splitRatio}%` } : undefined}
                 >
                   <DocumentViewer
-                    sessionId={currentId || (sessions[0]?.id) || ''}
+                    sessionId={activeCitation?.session_id || currentId || (sessions[0]?.id) || ''}
                     activeDocument={activeDocument}
                     activeCitation={activeCitation}
                     allCitations={citations}
@@ -777,6 +837,9 @@ export default function App() {
                     isSplitView={true}
                     activeQuery={explicitQuery || lastUserQuery}
                     activeAnswer={explicitAnswer || lastAssistantAnswer}
+                    onPopOutPreview={(filename, sessionId, page) => {
+                      setPreviewTarget({ filename, sessionId, page });
+                    }}
                   />
                 </div>
               ) : (
@@ -786,6 +849,11 @@ export default function App() {
                   onError={setError}
                   open={sourcesOpen}
                   onClose={() => setSourcesOpen(false)}
+                  onOpenViewer={(filename, citation) => {
+                    setActiveDocument(filename);
+                    if (citation) setActiveCitation(citation);
+                    setViewerOpen(true);
+                  }}
                 />
               )}
             </div>
@@ -805,10 +873,7 @@ export default function App() {
       {view === 'documents' && (
         <DocumentManagement
           onOpenViewer={(_sessionId, filename) => {
-            setActiveDocument(filename);
-            setActiveCitation(null);
-            setViewerOpen(true);
-            setView('chat');
+            setPreviewTarget({ filename, sessionId: _sessionId });
           }}
           onChatWithFiles={(targetFiles) => {
             newChat();
@@ -831,10 +896,7 @@ export default function App() {
             setView('chat');
           }}
           onOpenViewer={(_sessionId, filename) => {
-            setActiveDocument(filename);
-            setActiveCitation(null);
-            setViewerOpen(true);
-            setView('chat');
+            setPreviewTarget({ filename, sessionId: _sessionId });
           }}
         />
       )}
@@ -851,10 +913,7 @@ export default function App() {
           </div>
           <DocumentManagement
             onOpenViewer={(_sessionId, filename) => {
-              setActiveDocument(filename);
-              setActiveCitation(null);
-              setViewerOpen(true);
-              setView('chat');
+              setPreviewTarget({ filename, sessionId: _sessionId });
             }}
           />
         </div>
@@ -879,6 +938,17 @@ export default function App() {
         onIngest={ingestFiles}
         onDeleteFile={deleteFile}
         onError={setError}
+        onPreviewDocument={(name) => {
+          setPreviewTarget({ filename: name, sessionId: currentId || 'default' });
+        }}
+      />
+
+      <DocumentPreviewModal
+        isOpen={!!previewTarget}
+        onClose={() => setPreviewTarget(null)}
+        filename={previewTarget?.filename || ''}
+        sessionId={previewTarget?.sessionId || currentId || 'default'}
+        initialPage={previewTarget?.page}
       />
 
       {showLogoutConfirm && (

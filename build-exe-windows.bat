@@ -16,6 +16,14 @@ if not exist "backend\launcher.py" (
   exit /b 1
 )
 
+if exist "backend\venv\Scripts\python.exe" (
+  set "PY_EXE=backend\venv\Scripts\python.exe"
+  set "PYINSTALLER_EXE=backend\venv\Scripts\pyinstaller.exe"
+) else (
+  set "PY_EXE=python"
+  set "PYINSTALLER_EXE=pyinstaller"
+)
+
 REM --- 1. Build the frontend so it can be bundled into the exe
 echo.
 echo [1/4] Building frontend (npm run build)...
@@ -33,7 +41,7 @@ if not exist "frontend\dist\index.html" (
 REM --- 2. Make sure PyInstaller is installed in this Python env
 echo.
 echo [2/4] Ensuring PyInstaller is installed...
-python -m pip show pyinstaller >nul 2>&1 || python -m pip install pyinstaller
+!PY_EXE! -m pip show pyinstaller >nul 2>&1 || !PY_EXE! -m pip install pyinstaller
 
 REM --- 3. Clean previous build artifacts
 echo.
@@ -44,7 +52,7 @@ if exist "dist" rmdir /s /q "dist"
 REM --- 4. Run PyInstaller against the spec
 echo.
 echo [4/4] Running PyInstaller (this takes several minutes)...
-pyinstaller MultimodalRag.spec --noconfirm --clean || (echo [error] PyInstaller build failed & exit /b 1)
+!PYINSTALLER_EXE! MultimodalRag.spec --noconfirm --clean || (echo [error] PyInstaller build failed & exit /b 1)
 
 echo.
 echo ============================================================
@@ -52,6 +60,6 @@ echo   DONE.
 echo   Your app is at:  dist\MultimodalRag\MultimodalRag.exe
 echo   Double-click it (or run from a terminal to see logs).
 echo   NOTE: Ollama must be installed + the model pulled:
-echo         ollama pull qwen3:8b
+echo         ollama pull qwen2.5:7b-instruct
 echo ============================================================
 endlocal

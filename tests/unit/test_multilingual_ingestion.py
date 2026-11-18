@@ -144,3 +144,43 @@ def test_archive_safety_rejection():
     finally:
         Path(temp_path).unlink(missing_ok=True)
 
+
+def test_borderless_lab_fir_row_alignment():
+    """Verify that borderless 2-column medical lab reports and FIR headers preserve row alignment with ' | '."""
+    import fitz
+    from backend.ingestion.pdf_docx_parser import parse_pdf
+
+    doc = fitz.open()
+    page = doc.new_page()
+    # Insert 3+ lines with multi-column horizontal spacing (> 25pt gap)
+    page.insert_text(fitz.Point(50, 100), "Hemoglobin")
+    page.insert_text(fitz.Point(200, 100), "13.8 g/dL")
+    page.insert_text(fitz.Point(350, 100), "13.0-17.0")
+
+    page.insert_text(fitz.Point(50, 130), "WBC Count")
+    page.insert_text(fitz.Point(200, 130), "6,500 /uL")
+    page.insert_text(fitz.Point(350, 130), "4,000-11,000")
+
+    page.insert_text(fitz.Point(50, 160), "Platelet Count")
+    page.insert_text(fitz.Point(200, 160), "250,000 /uL")
+    page.insert_text(fitz.Point(350, 160), "150,000-450,000")
+
+    f = tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False)
+    pdf_path = f.name
+    f.close()
+    doc.save(pdf_path)
+    doc.close()
+
+    try:
+        records = parse_pdf(pdf_path, extract_tables=True)
+        assert len(records) >= 1
+        combined_text = "\n".join(r["text"] for r in records)
+
+        # Verify that Hemoglobin and 13.8 g/dL appear on the same row-aligned line with ' | '
+        assert "Hemoglobin | 13.8 g/dL | 13.0-17.0" in combined_text
+        assert "WBC Count | 6,500 /uL | 4,000-11,000" in combined_text
+        assert "Platelet Count | 250,000 /uL | 150,000-450,000" in combined_text
+    finally:
+        Path(pdf_path).unlink(missing_ok=True)
+
+

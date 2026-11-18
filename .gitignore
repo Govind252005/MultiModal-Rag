@@ -123,3 +123,13 @@ reports/verification/
 # Current corpus contains local/private documents and media; publish only a
 # sanitized sample corpus under a separate path.
 evaluation/corpus/
+
+# Local analysis & IDE caches
+.ua/
+.understand-anything/
+.impeccable/
+*.finalize.json
+*.finalize-summary.json
+*.delivery.json
+
+

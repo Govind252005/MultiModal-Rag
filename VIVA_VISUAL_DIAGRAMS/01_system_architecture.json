@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Offline Multimodal RAG System Architecture",
+    "output": "VIVA_VISUAL_DIAGRAMS/01_system_architecture.html",
+    "viewBox": [1360, 720],
+    "visual_preset": "blueprint",
+    "animation": "trace",
+    "quality_profile": "standard"
+  },
+  "components": [
+    { "id": "browser_user", "type": "external", "label": "Client User", "sublabel": "Browser / Desktop", "pos": [40, 320], "size": [130, 64] },
+    { "id": "react_app", "type": "frontend", "label": "React Frontend", "sublabel": "DocumentViewer.tsx", "pos": [230, 320], "size": [150, 64], "tag": "Vite + Tailwind" },
+    { "id": "fastapi_api", "type": "backend", "label": "FastAPI Router", "sublabel": "router.py / main.py", "pos": [450, 320], "size": [140, 64], "tag": "REST + SSE" },
+    { "id": "jwt_auth", "type": "security", "label": "Tenant Guard", "sublabel": "auth.py (JWT + RBAC)", "pos": [450, 160], "size": [140, 64], "tag": "Tenant Isolation" },
+    
+    { "id": "ingest_engine", "type": "backend", "label": "Ingestion Pipeline", "sublabel": "pdf_docx_parser.py", "pos": [670, 160], "size": [150, 64], "tag": "PyMuPDF Tables" },
+    { "id": "vision_ocr", "type": "backend", "label": "Visual & OCR", "sublabel": "PaddleOCR + BLIP + CLIP", "pos": [890, 160], "size": [160, 64], "tag": "512-d CLIP" },
+    { "id": "audio_asr", "type": "backend", "label": "Speech ASR", "sublabel": "Whisper STT Model", "pos": [670, 40], "size": [150, 60], "tag": "Local Audio/Video" },
+    
+    { "id": "hybrid_search", "type": "backend", "label": "Hybrid Search", "sublabel": "search.py (RRF Fusion)", "pos": [670, 320], "size": [150, 64], "tag": "Reciprocal Rank" },
+    { "id": "cross_encoder", "type": "backend", "label": "Cross-Encoder", "sublabel": "ms-marco reranker", "pos": [890, 320], "size": [160, 64], "tag": "Top-7 Rerank" },
+    
+    { "id": "chroma_db", "type": "database", "label": "ChromaDB Store", "sublabel": "vector_store.py", "pos": [670, 480], "size": [150, 64], "tag": "384-d Dense" },
+    { "id": "bm25_index", "type": "database", "label": "BM25 Lexical", "sublabel": "lexical_index.py", "pos": [890, 480], "size": [160, 64], "tag": "Sparse Inverted" },
+    
+    { "id": "llm_engine", "type": "backend", "label": "Answer Generator", "sublabel": "answer.py (Citations)", "pos": [1120, 320], "size": [160, 64], "tag": "Evidence Locking" },
+    { "id": "ollama_qwen", "type": "backend", "label": "Local Ollama", "sublabel": "qwen2.5:7b-instruct", "pos": [1120, 160], "size": [160, 64], "tag": "8192 Ctx Offline" },
+    { "id": "groq_cloud", "type": "cloud", "label": "Groq Cloud API", "sublabel": "llm_client.py fallback", "pos": [1120, 580], "size": [160, 64], "tag": "Online Fallback" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "STRICT_OFFLINE_MODE Boundary", "wraps": ["fastapi_api", "jwt_auth", "ingest_engine", "vision_ocr", "audio_asr", "hybrid_search", "cross_encoder", "chroma_db", "bm25_index", "llm_engine", "ollama_qwen"] },
+    { "kind": "security-group", "label": "Local Hybrid Storage Tier", "wraps": ["chroma_db", "bm25_index"] }
+  ],
+  "connections": [
+    { "id": "c1", "from": "browser_user", "to": "react_app", "label": "User Query", "variant": "emphasis" },
+    { "id": "c2", "from": "react_app", "to": "fastapi_api", "label": "POST /chat", "variant": "emphasis" },
+    { "id": "c3", "from": "jwt_auth", "to": "fastapi_api", "label": "verify tenant", "variant": "security", "labelDy": 24 },
+    { "id": "c4", "from": "fastapi_api", "to": "ingest_engine", "label": "upload docs" },
+    { "id": "c5", "from": "ingest_engine", "to": "audio_asr", "label": "speech file", "variant": "dashed" },
+    { "id": "c6", "from": "ingest_engine", "to": "vision_ocr", "label": "extract OCR & CLIP" },
+    { "id": "c7", "from": "fastapi_api", "to": "hybrid_search", "label": "query text", "variant": "emphasis" },
+    { "id": "c8", "from": "hybrid_search", "to": "chroma_db", "label": "dense cosine", "labelDy": 24 },
+    { "id": "c9", "from": "hybrid_search", "to": "bm25_index", "label": "sparse tokens" },
+    { "id": "c10", "from": "hybrid_search", "to": "cross_encoder", "label": "RRF candidates", "variant": "emphasis" },
+    { "id": "c11", "from": "cross_encoder", "to": "llm_engine", "label": "top-7 chunks", "variant": "emphasis" },
+    { "id": "c12", "from": "llm_engine", "to": "ollama_qwen", "label": "qwen2.5 IPC :11434", "variant": "emphasis" },
+    { "id": "c13", "from": "llm_engine", "to": "groq_cloud", "label": "cloud fallback", "variant": "dashed", "labelDy": 50 }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Airgapped Offline Enforcement",
+      "items": [
+        "STRICT_OFFLINE_MODE restricts execution to local Ollama qwen2.5:7b-instruct, ChromaDB, and local PyTorch models",
+        "Tenant isolation strictly bounds collections by tenant_id",
+        "Deterministic local regex/extractive fallback if generation exceeds timeout"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Dual Multimodal Storage",
+      "items": [
+        "Dense ChromaDB stores 384-d all-MiniLM-L6-v2 text and 512-d CLIP visual vectors",
+        "Inverted BM25 index provides exact lexical recall for codes, acronyms, and Hindi Devanagari text",
+        "Reciprocal Rank Fusion (RRF k=60) merges disparate scoring distributions"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Grounded Evidence Verification",
+      "items": [
+        "Cross-Encoder neural model narrows candidates to top-7 high-confidence passages",
+        "answer.py extracts [1], [2] brackets, locking find_primary_evidence_span",
+        "DocumentViewer.tsx renders active yellow highlights across line breaks"
+      ]
+    }
+  ]
+}

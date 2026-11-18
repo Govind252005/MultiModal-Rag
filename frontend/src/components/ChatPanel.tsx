@@ -114,24 +114,24 @@ function UserBubble({
           <button
             type="button"
             onClick={() => onRewrite(message.text)}
-            className="flex items-center gap-1 rounded-lg px-2 py-1 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 text-surface-600 dark:text-surface-300 transition shadow-2xs"
+            className="flex items-center gap-1 rounded px-2 py-1 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 text-surface-600 dark:text-surface-300 transition shadow-2xs cursor-pointer font-mono text-[11px]"
             title="Edit / Rewrite query"
           >
-            <Edit3 className="h-3.5 w-3.5 text-brand-500" />
-            <span className="hidden sm:inline font-medium text-[11px]">Edit</span>
+            <Edit3 className="h-3 w-3 text-brand-500" />
+            <span className="hidden sm:inline">EDIT</span>
           </button>
         )}
         <button
           type="button"
           onClick={handleCopy}
-          className="rounded-lg p-1.5 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 text-surface-600 dark:text-surface-300 transition shadow-2xs"
+          className="rounded p-1 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 text-surface-600 dark:text-surface-300 transition shadow-2xs cursor-pointer"
           title="Copy query text"
         >
           {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
         </button>
       </div>
 
-      <div className="max-w-[85%] sm:max-w-[75%] space-y-2 rounded-2xl rounded-tr-sm bg-brand-600 px-4 py-3 text-sm text-white shadow-subtle">
+      <div className="max-w-[85%] sm:max-w-[75%] space-y-2 rounded-xl bg-surface-900 text-surface-50 dark:bg-surface-100 dark:text-surface-950 px-4 py-2.5 text-xs leading-relaxed shadow-subtle border border-surface-800 dark:border-surface-200">
         {message.imageUrl && (
           <img
             src={message.imageUrl}
@@ -142,8 +142,8 @@ function UserBubble({
         )}
         <p className="whitespace-pre-wrap leading-relaxed">{message.text}</p>
       </div>
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-200 text-surface-600 dark:bg-surface-800 dark:text-surface-300">
-        <User className="h-4 w-4" />
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-surface-200 bg-surface-100 text-surface-600 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-300 shadow-2xs font-mono text-xs">
+        <User className="h-3.5 w-3.5" />
       </div>
     </div>
   )
@@ -173,28 +173,29 @@ function AssistantBubble({
   }
 
   return (
-    <div className="flex justify-start gap-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-900 text-white dark:bg-brand-600 shadow-subtle">
-        <Bot className="h-4 w-4" />
+    <div className="flex justify-start gap-3 items-start">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-surface-300 bg-surface-900 text-white dark:border-surface-700 dark:bg-surface-800 dark:text-surface-100 shadow-subtle font-mono text-xs">
+        <Bot className="h-3.5 w-3.5" />
       </div>
 
-      <div className="max-w-[90%] sm:max-w-[85%] space-y-3 rounded-2xl rounded-tl-sm border border-surface-200 bg-white p-5 text-sm shadow-subtle dark:border-surface-800 dark:bg-surface-900">
+      <div className="max-w-[90%] sm:max-w-[85%] space-y-3 rounded-xl border border-surface-200 bg-white p-5 text-xs shadow-subtle dark:border-surface-800 dark:bg-surface-900">
         {message.loading ? (
-          <div className="flex items-center gap-2.5 text-surface-500 dark:text-surface-400 py-1">
-            <Loader2 className="h-4 w-4 animate-spin text-brand-600" />
-            <span className="text-xs font-medium">Generating grounded response...</span>
+          <div className="flex items-center gap-2.5 text-surface-500 dark:text-surface-400 py-1 font-mono text-xs">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600 dark:text-brand-400" />
+            <span>SYNTHESIZING GROUNDED RESPONSE...</span>
           </div>
         ) : (
           <>
-            {/* Context Label if present (e.g. Image OCR or Audio Transcript) */}
+            {/* Context Label if present */}
             {message.contextLabel && message.contextValue && (
-              <div className="rounded-lg border border-surface-200 bg-surface-50 p-2.5 text-xs text-surface-700 dark:border-surface-800 dark:bg-surface-850 dark:text-surface-300">
-                <span className="font-semibold text-surface-500">{message.contextLabel}:</span>{' '}
-                <span className="italic">{message.contextValue}</span>
+              <div className="flex items-center gap-2 rounded-lg border border-surface-200 bg-surface-50 px-3 py-2 text-xs text-surface-700 dark:border-surface-800 dark:bg-surface-850 dark:text-surface-300">
+                <ImageIcon className="h-3.5 w-3.5 shrink-0 text-brand-600 dark:text-brand-400" />
+                <span className="font-semibold">{message.contextLabel}:</span>{' '}
+                <span className="truncate font-mono">{message.contextValue}</span>
               </div>
             )}
 
-            {/* Answer Body (Rich Markdown + Code + Tables + Clickable Citations) */}
+            {/* Answer Body */}
             <AnswerText
               text={message.text}
               onCitationClick={(idx) => onCitationClick(idx, message.citations, message.text, precedingUserQuery)}
@@ -203,9 +204,9 @@ function AssistantBubble({
 
             {/* Faithfulness Warning Banner */}
             {message.faithfulnessWarning && (
-              <div className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                Response generated without complete source coverage. Verify citations.
+                <span>Response generated without complete source coverage. Verify citations.</span>
               </div>
             )}
 
@@ -215,16 +216,16 @@ function AssistantBubble({
             )}
 
             {/* Assistant Message Action Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-surface-100 dark:border-surface-800/80 text-xs text-surface-400">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-surface-100 dark:border-surface-800/80 text-xs text-surface-400">
+              <div className="flex items-center gap-2.5">
                 <Badge variant={message.usedLlm ? 'brand' : 'neutral'} size="sm">
                   <Sparkles className="h-3 w-3 mr-1" />
                   {message.usedLlm ? 'LLM Grounded' : 'Direct Field Extraction'}
                 </Badge>
 
                 {message.citations && message.citations.length > 0 && (
-                  <span className="text-surface-500 font-medium">
-                    {message.citations.length} cited passage(s)
+                  <span className="font-mono text-[11px] text-surface-500">
+                    {message.citations.length} cited source(s)
                   </span>
                 )}
               </div>
@@ -234,7 +235,7 @@ function AssistantBubble({
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="rounded-lg p-1.5 text-surface-400 hover:text-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 dark:hover:text-surface-200 transition-colors"
+                  className="rounded p-1 text-surface-400 hover:text-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 dark:hover:text-surface-200 transition-colors cursor-pointer"
                   title="Copy answer to clipboard"
                 >
                   {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
@@ -244,7 +245,7 @@ function AssistantBubble({
                   <button
                     type="button"
                     onClick={onRegenerate}
-                    className="rounded-lg p-1.5 text-surface-400 hover:text-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 dark:hover:text-surface-200 transition-colors"
+                    className="rounded p-1 text-surface-400 hover:text-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 dark:hover:text-surface-200 transition-colors cursor-pointer"
                     title="Regenerate answer"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
@@ -254,7 +255,7 @@ function AssistantBubble({
                 <button
                   type="button"
                   onClick={() => setFeedback('up')}
-                  className={`rounded-lg p-1.5 transition-colors ${
+                  className={`rounded p-1 transition-colors cursor-pointer ${
                     feedback === 'up'
                       ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40'
                       : 'text-surface-400 hover:text-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 dark:hover:text-surface-200'
@@ -267,7 +268,7 @@ function AssistantBubble({
                 <button
                   type="button"
                   onClick={() => setFeedback('down')}
-                  className={`rounded-lg p-1.5 transition-colors ${
+                  className={`rounded p-1 transition-colors cursor-pointer ${
                     feedback === 'down'
                       ? 'text-rose-600 bg-rose-50 dark:bg-rose-950/40'
                       : 'text-surface-400 hover:text-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 dark:hover:text-surface-200'
@@ -297,9 +298,9 @@ function InlineCitationImages({
 
   return (
     <div className="flex flex-wrap gap-2 pt-2">
-      {imageCitations.map((c) => (
+      {imageCitations.map((c, idx) => (
         <AuthImage
-          key={c.id}
+          key={c.id || `${c.file}-${c.index ?? idx}`}
           url={c.media_url}
           alt={`[${c.index}] ${c.file}`}
           onClick={() => onOpenImage({ mediaUrl: c.media_url, alt: `[${c.index}] ${c.file}` })}
@@ -335,17 +336,16 @@ function EmptyState({ onSelectPrompt }: { onSelectPrompt?: (p: string) => void }
   ]
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center p-6 text-center max-w-2xl mx-auto my-auto">
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-950/60 dark:text-brand-400 shadow-subtle">
-        <MessageSquareText className="h-7 w-7" />
+    <div className="flex flex-1 flex-col items-center justify-center p-6 text-center max-w-2xl mx-auto my-auto font-sans">
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-surface-200 bg-white text-surface-900 dark:border-surface-800 dark:bg-surface-900 dark:text-surface-100 shadow-subtle font-mono font-bold text-sm">
+        <MessageSquareText className="h-6 w-6" />
       </div>
 
-      <h2 className="text-xl font-bold tracking-tight text-surface-900 dark:text-surface-100">
-        Enterprise Multimodal Chat
+      <h2 className="text-lg font-bold tracking-tight text-surface-900 dark:text-surface-100 font-mono uppercase">
+        Enterprise Multimodal Workspace
       </h2>
-      <p className="mt-1.5 text-xs text-surface-500 dark:text-surface-400 leading-relaxed max-w-md">
-        Ask questions in any language, attach documents, images, or audio clips. Answers are strictly
-        grounded with verifiable citations.
+      <p className="mt-1 text-xs text-surface-500 dark:text-surface-400 leading-relaxed max-w-md">
+        Ask queries in English, Hindi, or Spanish. Ingest PDFs, spreadsheets, scans, or recordings. All answers are strictly grounded with verified citations.
       </p>
 
       {/* Suggestion Cards */}
@@ -356,11 +356,11 @@ function EmptyState({ onSelectPrompt }: { onSelectPrompt?: (p: string) => void }
             <div
               key={idx}
               onClick={() => onSelectPrompt && onSelectPrompt(s.desc)}
-              className="cursor-pointer rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-3.5 shadow-subtle hover:border-brand-300 dark:hover:border-brand-700 hover:shadow-card transition-all"
+              className="cursor-pointer rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-3 shadow-subtle hover:border-surface-400 dark:hover:border-surface-600 transition-all"
             >
-              <div className="flex items-center gap-2 font-semibold text-xs text-surface-800 dark:text-surface-200">
+              <div className="flex items-center gap-2 font-medium text-xs text-surface-800 dark:text-surface-200">
                 <Icon className="h-3.5 w-3.5 text-brand-600 dark:text-brand-400" />
-                <span>{s.title}</span>
+                <span className="font-mono text-xs">{s.title}</span>
               </div>
               <p className="mt-1 text-[11px] text-surface-500 dark:text-surface-400 line-clamp-2">
                 {s.desc}

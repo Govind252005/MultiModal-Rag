@@ -40,21 +40,9 @@ class OllamaProvider(BaseProvider):
         yield from llm_client.stream_chat(system, user, history=history, model=model)
 
     def get_model_list(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        from backend import config
-        try:
-            client = llm_client._client()
-            res = client.list()
-            models_list = getattr(res, "models", []) or res.get("models", [])
-            out = []
-            for m in models_list:
-                name = m.get("model") or m.get("name") if isinstance(m, dict) else getattr(m, "model", "")
-                if name:
-                    out.append({"id": name, "name": name})
-            if out:
-                return out
-        except Exception:
-            pass
-        return [{"id": config.LLM_MODEL, "name": config.LLM_MODEL}]
+        import backend.config as b_config
+        target = getattr(b_config, "LLM_MODEL", "qwen2.5:7b-instruct")
+        return [{"id": target, "name": target}]
 
     def validate_api_key(self, key: str) -> bool:
         return True  # local; no key needed

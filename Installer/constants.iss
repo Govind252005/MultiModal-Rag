@@ -11,13 +11,13 @@
 ; ---------------------------------------------------------------------------
 ; Application identity
 ; ---------------------------------------------------------------------------
-#define APP_NAME "Multimodal RAG"
-#define APP_NAME_SAFE "MultimodalRag"
-#define APP_VERSION "1.0.0"
+#define APP_NAME "Multimodal RAG V2"
+#define APP_NAME_SAFE "MultimodalRag_V2"
+#define APP_VERSION "2.0.0"
 #define APP_PUBLISHER "Govind"
 #define APP_URL "https://example.com/multimodal-rag"
 #define APP_EXE_NAME "MultimodalRag.exe"
-#define APP_GUID "{A7B9C2E1-4F3D-4A6B-9E2C-1D8F5A6B7C90}"
+#define APP_GUID "{B8C0D3F2-5E4E-5B7C-AF3D-2E9A6B7C8D01}"
 
 ; ---------------------------------------------------------------------------
 ; Paths (relative to installer source tree, resolved at compile time)
@@ -37,7 +37,7 @@
 ; Output
 ; ---------------------------------------------------------------------------
 #define OUTPUT_DIR SRC_ROOT + "release"
-#define OUTPUT_BASE_FILENAME "MultimodalRagSetup"
+#define OUTPUT_BASE_FILENAME "MultimodalRagSetup_V2"
 
 ; ---------------------------------------------------------------------------
 ; Ollama
@@ -49,9 +49,9 @@
 #define OLLAMA_STARTUP_TIMEOUT_SEC "60"
 
 ; ---------------------------------------------------------------------------
-; AI Model
+; AI Model (aligned with backend/config.py LLM_MODEL)
 ; ---------------------------------------------------------------------------
-#define DEFAULT_MODEL "qwen3:8b"
+#define DEFAULT_MODEL "qwen2.5:7b-instruct"
 #define DEFAULT_MODEL_FALLBACK "qwen2.5:3b"
 #define MODEL_DOWNLOAD_MAX_RETRIES "3"
 #define MODEL_DOWNLOAD_TIMEOUT "1800"
@@ -59,7 +59,7 @@
 ; ---------------------------------------------------------------------------
 ; Application runtime defaults
 ; ---------------------------------------------------------------------------
-#define DEFAULT_PORT "8000"
+#define DEFAULT_PORT "8001"
 #define DEFAULT_HOST "127.0.0.1"
 
 ; ---------------------------------------------------------------------------
@@ -86,14 +86,14 @@
 ; ---------------------------------------------------------------------------
 ; Logging
 ; ---------------------------------------------------------------------------
-#define LOG_DIRECTORY "{localappdata}\MultimodalRag\Logs"
+#define LOG_DIRECTORY "{localappdata}\MultimodalRag_V2\Logs"
 #define LOG_FILE "installer.log"
 #define DIAGNOSTICS_INI_NAME "diagnostics.ini"
 
 ; ---------------------------------------------------------------------------
 ; Application data directories (created at first run)
 ; ---------------------------------------------------------------------------
-#define APP_DATA_DIR "{localappdata}\MultimodalRag"
+#define APP_DATA_DIR "{localappdata}\MultimodalRag_V2"
 #define APP_CONFIG_DIR APP_DATA_DIR + "\Config"
 #define APP_DB_DIR APP_DATA_DIR + "\Data"
 #define APP_MODELS_DIR APP_DATA_DIR + "\Models"
@@ -108,6 +108,6 @@
 ; ---------------------------------------------------------------------------
 ; Firewall
 ; ---------------------------------------------------------------------------
-#define FIREWALL_RULE_NAME "Multimodal RAG"
+#define FIREWALL_RULE_NAME "Multimodal RAG V2"
 
 #endif

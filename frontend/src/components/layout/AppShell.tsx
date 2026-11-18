@@ -36,8 +36,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   onLogout,
   activeProvider,
   health,
-  theme,
-  onToggleTheme,
+  theme: _theme,
+  onToggleTheme: _onToggleTheme,
   children,
 }) => {
   const [collapsed, setCollapsed] = React.useState(false)
@@ -205,16 +205,8 @@ export const AppShell: React.FC<AppShellProps> = ({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={onToggleTheme}
-                className="rounded-lg p-1.5 text-surface-400 hover:bg-surface-100 hover:text-surface-700 dark:hover:bg-surface-800 dark:hover:text-surface-200 transition-colors"
-                title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-              >
-                {theme === 'dark' ? '☀️' : '🌙'}
-              </button>
-              <button
-                type="button"
                 onClick={onLogout}
-                className="rounded-lg p-1.5 text-surface-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors"
+                className="rounded-lg p-1.5 text-surface-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors cursor-pointer"
                 title="Sign Out"
               >
                 <LogOut className="h-4 w-4" />

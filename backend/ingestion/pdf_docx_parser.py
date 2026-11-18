@@ -159,6 +159,99 @@ def _image_records(pil_img, file: str, image_dir: Optional[Path],
 # ------------------------------------------------------------------
 # PDF
 # ------------------------------------------------------------------
+def _mask_text_rects(words: List[Any], masked_rects: Optional[List[Any]]) -> List[Any]:
+    """Filter out word tuples that fall within masked table bounding boxes."""
+    if not masked_rects or not words:
+        return words
+    filtered: List[Any] = []
+    for w in words:
+        x0, y0, x1, y1 = w[:4]
+        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        in_mask = False
+        for r in masked_rects:
+            if hasattr(r, "contains"):
+                import fitz
+                if r.contains(fitz.Point(cx, cy)):
+                    in_mask = True
+                    break
+            elif isinstance(r, (tuple, list)) and len(r) >= 4:
+                if r[0] <= cx <= r[2] and r[1] <= cy <= r[3]:
+                    in_mask = True
+                    break
+        if not in_mask:
+            filtered.append(w)
+    return filtered
+
+
+def _extract_row_aligned_text(page, masked_rects: Optional[List[Any]] = None) -> str:
+    """Extract page text preserving visual row alignment for borderless tables/multi-column forms."""
+    try:
+        import fitz
+        words = page.get_text("words")
+        if not words:
+            return ""
+
+        if masked_rects:
+            words = _mask_text_rects(words, masked_rects)
+
+        if not words:
+            return ""
+
+        # Group words by visual horizontal lines using y_bucket = round(y0 / 6.0)
+        line_buckets: Dict[int, List[Any]] = {}
+        for w in words:
+            y_bucket = round(w[1] / 6.0)
+            if y_bucket not in line_buckets:
+                line_buckets[y_bucket] = []
+            line_buckets[y_bucket].append(w)
+
+        sorted_buckets: List[List[Any]] = []
+        for b_key in sorted(line_buckets.keys()):
+            b_words = sorted(line_buckets[b_key], key=lambda x: x[0])
+            sorted_buckets.append(b_words)
+
+        # Check if page has multi-column rows (horizontal gap > 25pt across >= 3 lines)
+        multi_col_line_count = 0
+        for b_words in sorted_buckets:
+            for idx in range(1, len(b_words)):
+                gap = b_words[idx][0] - b_words[idx - 1][2]
+                if gap > 25.0:
+                    multi_col_line_count += 1
+                    break
+
+        is_multi_column = multi_col_line_count >= 3
+
+        if not is_multi_column:
+            if not masked_rects:
+                return page.get_text("text").strip()
+            # If masked_rects were excluded, return reconstructed prose lines
+            lines_out = []
+            for b_words in sorted_buckets:
+                line_str = " ".join(w[4] for w in b_words).strip()
+                if line_str:
+                    lines_out.append(line_str)
+            return "\n".join(lines_out).strip()
+
+        # Build row-aligned text joining column gaps (> 18pt) with " | "
+        formatted_lines = []
+        for b_words in sorted_buckets:
+            if not b_words:
+                continue
+            line_parts = [b_words[0][4]]
+            for idx in range(1, len(b_words)):
+                gap = b_words[idx][0] - b_words[idx - 1][2]
+                sep = " | " if gap > 18.0 else " "
+                line_parts.append(sep + b_words[idx][4])
+            line_text = "".join(line_parts).strip()
+            if line_text:
+                formatted_lines.append(line_text)
+
+        return "\n".join(formatted_lines).strip()
+    except Exception as exc:
+        print(f"[pdf] _extract_row_aligned_text error: {exc}")
+        return page.get_text("text").strip()
+
+
 def parse_pdf(path: str, image_dir: Optional[Path] = None,
              ocr_fallback: bool = True, extract_tables: bool = True,
              extract_embedded_images: bool = True) -> List[Dict[str, Any]]:
@@ -181,14 +274,42 @@ def parse_pdf(path: str, image_dir: Optional[Path] = None,
     seen_xrefs: set = set()
     extracted = 0
     active_heading: Optional[str] = None
+    table_state: Dict[str, Any] = {"last_header": None}
     try:
         for page_index in range(page_limit):
             page = doc[page_index]
             page_no = page_index + 1
-            text = page.get_text("text").strip()
 
-            if len(text) < 10 and ocr_fallback:  # brief §44: skippable in FAST mode
-                text = _ocr_pdf_page(page)
+            table_bboxes = []
+            if extract_tables:
+                try:
+                    tabs = page.find_tables()
+                    for tbl in (tabs.tables if hasattr(tabs, "tables") else []):
+                        if hasattr(tbl, "bbox") and tbl.bbox:
+                            table_bboxes.append(tbl.bbox)
+                except Exception:
+                    pass
+
+            text = _extract_row_aligned_text(page, masked_rects=table_bboxes if table_bboxes else None)
+
+            if ocr_fallback:  # brief §44: skippable in FAST mode
+                native_clean = text.strip()
+                has_images = len(page.get_images(full=True)) > 0
+                should_ocr = len(native_clean) < 10 or (len(native_clean) < 140 and has_images)
+                if should_ocr:
+                    ocr_text = _ocr_pdf_page(page)
+                    if ocr_text:
+                        if len(native_clean) < 10:
+                            text = ocr_text
+                        else:
+                            if native_clean.lower() not in ocr_text.lower():
+                                text = f"{native_clean}\n\n{ocr_text}"
+                            else:
+                                text = ocr_text
+
+            for ch in ("\u200b", "\u200c", "\u200d", "\ufeff", "\u2060", "\xad"):
+                text = text.replace(ch, "")
+            text = text.replace("\u00a0", " ")
 
             if not text.strip():
                 try:
@@ -213,7 +334,7 @@ def parse_pdf(path: str, image_dir: Optional[Path] = None,
                                            section=eff_sec))
 
             if extract_tables:  # brief §44: skippable outside MAX_QUALITY
-                records.extend(_table_records(page, page_no, file, section=active_heading))
+                records.extend(_table_records(page, page_no, file, section=active_heading, state=table_state))
 
             if not extract_embedded_images:  # brief §44: skippable outside MAX_QUALITY
                 continue
@@ -246,13 +367,14 @@ def parse_pdf(path: str, image_dir: Optional[Path] = None,
     return records
 
 
-def _table_records(page, page_no: int, file: str, section: Optional[str] = None) -> List[Dict[str, Any]]:
+def _table_records(page, page_no: int, file: str, section: Optional[str] = None,
+                   state: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Extract tables from a PDF page via PyMuPDF find_tables() with header preservation across chunks."""
     records: List[Dict[str, Any]] = []
     try:
         import fitz
         tabs = page.find_tables()
-        for tbl in (tabs.tables if hasattr(tabs, "tables") else []):
+        for idx, tbl in enumerate(tabs.tables if hasattr(tabs, "tables") else []):
             rows = tbl.extract()
             if not rows or len(rows) == 0:
                 continue
@@ -269,20 +391,30 @@ def _table_records(page, page_no: int, file: str, section: Optional[str] = None)
             except Exception:
                 pass
 
-            context_tag = ""
-            if section and table_caption:
-                context_tag = f"[Table Context: {section} | {table_caption} | Page {page_no}]\n"
-            elif section:
-                context_tag = f"[Table Context: {section} | Page {page_no}]\n"
-            elif table_caption:
-                context_tag = f"[Table Context: {table_caption} | Page {page_no}]\n"
+            eff_sec = section or "General"
+            if table_caption:
+                context_tag = f"[Table {idx + 1} | Section: {eff_sec} | Caption: {table_caption} | Page {page_no} | {file}]\n"
+            else:
+                context_tag = f"[Table {idx + 1} | Section: {eff_sec} | Page {page_no} | {file}]\n"
 
             # Clean rows
             cleaned_rows = [
                 [str(c).strip().replace("\n", " ") if c is not None else "" for c in r]
                 for r in rows
             ]
+
+            # Continuation table check: if first row is pure data and matches column count of previous page table
+            if state is not None and state.get("last_header") and cleaned_rows:
+                prev_hdr = state["last_header"]
+                if len(cleaned_rows[0]) == len(prev_hdr):
+                    first_cell = cleaned_rows[0][0].strip()
+                    if first_cell.isdigit() or not any(w in cleaned_rows[0] for w in ["Name", "ID", "No", "Title", "Date", "Description", "Result", "Parameter", "Test Case"]):
+                        cleaned_rows.insert(0, prev_hdr)
+
             header_cells = cleaned_rows[0]
+            if state is not None and header_cells:
+                state["last_header"] = header_cells
+
             col_count = len(header_cells)
             header_line = "| " + " | ".join(header_cells) + " |"
             sep_line = "| " + " | ".join(["---"] * max(1, col_count)) + " |"
